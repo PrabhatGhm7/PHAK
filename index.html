@@ -1,0 +1,1047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PHAK Flight Path</title>
+<style>
+/* Layout idea: one-column iOS app. Large title, a "next session" hero, a Duolingo-style winding route of 143 nodes,
+   floating Liquid-Glass tab bar, and a draggable session sheet that turns reading into a route you fly. */
+:root{
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-round: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+  --bg: #eef2f8;
+  --bg-2: #dfe8f5;
+  --ink: #0b1220;
+  --ink-2: #4b5567;
+  --ink-3: #8a93a3;
+  --accent: #0a7cff;
+  --accent-ink: #ffffff;
+  --gold: #ffb800;
+  --flame: #ff6a00;
+  --good: #22b14c;
+  --glass: rgba(255,255,255,.62);
+  --glass-strong: rgba(255,255,255,.82);
+  --glass-edge: rgba(255,255,255,.85);
+  --hair: rgba(15,23,42,.08);
+  --card: rgba(255,255,255,.78);
+  --fill: rgba(118,128,150,.12);
+  --shadow: 0 1px 1px rgba(15,23,42,.04), 0 8px 24px rgba(15,23,42,.08);
+  --shadow-lg: 0 2px 6px rgba(15,23,42,.06), 0 24px 60px rgba(15,23,42,.18);
+  --node-off: #d5dce7;
+  --node-off-depth: #b7c1d0;
+  --blob-a: #8ec5ff; --blob-b: #ffd3a8; --blob-c: #c7b8ff;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#05070d; --bg-2:#0b1222; --ink:#f3f6fb; --ink-2:#a9b2c3; --ink-3:#6b7486;
+    --accent:#3d9bff; --glass:rgba(28,32,44,.58); --glass-strong:rgba(30,34,46,.86); --glass-edge:rgba(255,255,255,.14);
+    --hair:rgba(255,255,255,.08); --card:rgba(26,30,42,.72); --fill:rgba(120,130,160,.18);
+    --shadow:0 1px 1px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --shadow-lg:0 24px 60px rgba(0,0,0,.55);
+    --node-off:#2a3142; --node-off-depth:#1a1f2c; --blob-a:#1d4fa0; --blob-b:#6b3415; --blob-c:#3f2a8a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#05070d; --bg-2:#0b1222; --ink:#f3f6fb; --ink-2:#a9b2c3; --ink-3:#6b7486;
+  --accent:#3d9bff; --glass:rgba(28,32,44,.58); --glass-strong:rgba(30,34,46,.86); --glass-edge:rgba(255,255,255,.14);
+  --hair:rgba(255,255,255,.08); --card:rgba(26,30,42,.72); --fill:rgba(120,130,160,.18);
+  --shadow:0 1px 1px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35); --shadow-lg:0 24px 60px rgba(0,0,0,.55);
+  --node-off:#2a3142; --node-off-depth:#1a1f2c; --blob-a:#1d4fa0; --blob-b:#6b3415; --blob-c:#3f2a8a;
+  color-scheme: dark;
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:400 17px/1.45 var(--font);-webkit-font-smoothing:antialiased;letter-spacing:-.01em;overflow-x:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer;padding:0}
+textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:12px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* Ambient sky behind the glass */
+.sky{position:fixed;inset:0;z-index:-1;overflow:hidden;background:linear-gradient(180deg,var(--bg-2),var(--bg) 60%)}
+.sky i{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55}
+.sky i:nth-child(1){width:60vmax;height:60vmax;left:-20vmax;top:-25vmax;background:var(--blob-a)}
+.sky i:nth-child(2){width:45vmax;height:45vmax;right:-18vmax;top:10vh;background:var(--blob-c);opacity:.4}
+.sky i:nth-child(3){width:50vmax;height:50vmax;left:10vw;bottom:-30vmax;background:var(--blob-b);opacity:.35}
+
+/* Liquid glass material */
+.glass{background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--glass-edge), inset 0 0 0 .5px var(--hair), var(--shadow)}
+
+/* Top bar: appears as you scroll past the large title */
+.topbar{position:fixed;left:0;right:0;top:0;z-index:20;padding:calc(env(safe-area-inset-top) + 8px) 16px 8px;
+  display:flex;align-items:center;gap:10px;border-radius:0;transition:opacity .25s ease}
+.topbar .t{flex:1;font-weight:600;font-size:17px;opacity:0;transform:translateY(6px);transition:opacity .25s,transform .35s cubic-bezier(.2,.9,.3,1)}
+.topbar.scrolled .t{opacity:1;transform:none}
+.topbar:not(.scrolled){background:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
+.chip{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 11px;border-radius:999px;font:600 15px/1 var(--font-round);font-variant-numeric:tabular-nums}
+.chip svg{width:18px;height:18px}
+.chip.flame{color:var(--flame)} .chip.xp{color:#c98a00}
+:root[data-theme="dark"] .chip.xp{color:var(--gold)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .chip.xp{color:var(--gold)}}
+.chip.timer{color:var(--accent);display:none}
+.chip.timer.on{display:inline-flex}
+
+main{max-width:640px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 60px) 16px calc(env(safe-area-inset-bottom) + 120px)}
+.view{display:none}
+.view.on{display:block;animation:viewIn .45s cubic-bezier(.2,.9,.3,1)}
+@keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.large{font:700 34px/1.08 var(--font);letter-spacing:-.025em;margin:6px 4px 4px;text-wrap:balance}
+.sub{color:var(--ink-2);margin:0 4px 20px;font-size:15px}
+
+/* Hero: next session */
+.hero{position:relative;border-radius:28px;padding:20px;margin-bottom:22px;overflow:hidden}
+.hero .eyebrow{font:600 13px/1 var(--font);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-2)}
+.hero h2{font:700 24px/1.15 var(--font);letter-spacing:-.02em;margin:8px 0 6px;text-wrap:balance}
+.hero .meta{color:var(--ink-2);font-size:15px}
+.hero-row{display:flex;gap:14px;align-items:center;margin-top:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:52px;padding:0 22px;border-radius:999px;font-weight:600;font-size:17px;
+  background:var(--accent);color:var(--accent-ink);box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 40%,transparent), inset 0 1px 0 rgba(255,255,255,.35);
+  transition:transform .12s ease-out, filter .2s}
+.btn:active{transform:scale(.96)}
+.btn[disabled]{background:var(--fill);color:var(--ink-3);box-shadow:none;cursor:default}
+.btn.wide{width:100%}
+.btn.ghost{background:var(--fill);color:var(--ink);box-shadow:none}
+.stats3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
+.stat{border-radius:18px;padding:12px;background:var(--fill)}
+.stat b{display:block;font:700 22px/1.1 var(--font-round);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--ink-2)}
+
+/* Rings (Apple Fitness) */
+.ring{--p:0;position:relative;width:76px;height:76px;flex:none}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring .track{stroke:var(--fill)}
+.ring .bar{transition:stroke-dashoffset 1s cubic-bezier(.2,.9,.3,1)}
+.ring .lbl{position:absolute;inset:0;display:grid;place-items:center;text-align:center;font:700 15px/1.05 var(--font-round)}
+.ring .lbl small{display:block;font:500 10px/1 var(--font);color:var(--ink-2);margin-top:2px}
+
+/* Route (path view) */
+.unit{position:relative;border-radius:24px;padding:16px 18px;margin:28px 0 18px;color:#fff;overflow:hidden;
+  box-shadow:0 10px 28px color-mix(in srgb,var(--c1) 35%,transparent), inset 0 1px 0 rgba(255,255,255,.35);
+  background:linear-gradient(135deg,var(--c1),var(--c2))}
+.unit::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 100% 0%,rgba(255,255,255,.28),transparent 60%);pointer-events:none}
+.unit .k{font:600 12.5px/1 var(--font);text-transform:uppercase;letter-spacing:.07em;opacity:.85}
+.unit h3{margin:6px 0 2px;font:700 20px/1.2 var(--font);letter-spacing:-.015em;text-wrap:balance}
+.unit .ch{font-size:14px;opacity:.9}
+.unit .bar{height:6px;border-radius:9px;background:rgba(255,255,255,.3);margin-top:12px;overflow:hidden}
+.unit .bar i{display:block;height:100%;background:#fff;border-radius:9px;transition:width .8s cubic-bezier(.2,.9,.3,1)}
+.unit .note{font-size:13.5px;opacity:.92;margin-top:8px}
+.route{position:relative;padding:4px 0 8px}
+.stop{position:relative;display:flex;align-items:center;height:96px}
+.node{position:absolute;left:50%;width:68px;height:62px;margin-left:-34px;border-radius:50%;display:grid;place-items:center;
+  font:800 17px/1 var(--font-round);color:var(--ink-3);background:var(--node-off);box-shadow:0 7px 0 var(--node-off-depth);
+  transition:transform .12s ease-out, box-shadow .12s ease-out}
+.node:active{transform:translateY(5px);box-shadow:0 2px 0 var(--node-off-depth)}
+.node svg{width:28px;height:28px}
+.node.done{color:#fff;background:linear-gradient(180deg,#ffd34d,#ffb000);box-shadow:0 7px 0 #d18a00}
+.node.done:active{box-shadow:0 2px 0 #d18a00}
+.node.cur{color:#fff;background:linear-gradient(180deg,var(--c1),var(--c2));box-shadow:0 7px 0 color-mix(in srgb,var(--c2) 70%,#000)}
+.node.cur::before{content:"";position:absolute;inset:-10px;border-radius:50%;border:4px solid color-mix(in srgb,var(--c1) 45%,transparent);animation:pulse 2.4s ease-out infinite}
+@keyframes pulse{0%{transform:scale(.9);opacity:1}70%{transform:scale(1.18);opacity:0}100%{opacity:0}}
+.node.review{border-radius:22px}
+.bubble{position:absolute;left:50%;top:-30px;transform:translateX(-50%);padding:6px 12px;border-radius:12px;background:var(--glass-strong);color:var(--accent);
+  font:800 13px/1 var(--font-round);letter-spacing:.06em;box-shadow:var(--shadow);white-space:nowrap;animation:bob 1.8s ease-in-out infinite}
+.bubble::after{content:"";position:absolute;left:50%;bottom:-6px;margin-left:-6px;border:6px solid transparent;border-bottom:0;border-top-color:var(--glass-strong)}
+@keyframes bob{50%{transform:translate(-50%,-4px)}}
+.stop .lab{position:absolute;width:calc(50% - 60px);font-size:14px;line-height:1.25;color:var(--ink-2)}
+.stop .lab b{display:block;color:var(--ink);font-weight:600;font-size:14.5px}
+.stop .lab.r{left:calc(50% + 50px)} .stop .lab.l{right:calc(50% + 50px);text-align:right}
+.trail{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.trail path{fill:none;stroke:var(--node-off);stroke-width:6;stroke-linecap:round;stroke-dasharray:1 14}
+
+/* Checklist (iOS inset grouped) */
+.seg{display:flex;padding:3px;border-radius:12px;background:var(--fill);margin:0 0 16px;position:relative}
+.seg button{flex:1;height:34px;border-radius:9px;font-size:14px;font-weight:600;position:relative;z-index:1;color:var(--ink-2)}
+.seg button.on{color:var(--ink)}
+.seg .knob{position:absolute;top:3px;bottom:3px;border-radius:9px;background:var(--glass-strong);box-shadow:0 2px 8px rgba(0,0,0,.12),inset 0 0 0 .5px var(--hair)}
+.search{display:flex;align-items:center;gap:8px;height:40px;border-radius:12px;background:var(--fill);padding:0 12px;margin-bottom:12px;color:var(--ink-3)}
+.search input{flex:1;border:0;background:none;font:inherit;color:var(--ink);outline:none;font-size:16px}
+.group h4{margin:22px 16px 7px;font:600 13px/1.2 var(--font);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);display:flex;justify-content:space-between}
+.list{border-radius:20px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;min-height:58px;position:relative;width:100%;text-align:left;transition:background .15s}
+.row:active{background:var(--fill)}
+.row+.row::before{content:"";position:absolute;top:0;left:56px;right:0;height:.5px;background:var(--hair)}
+.chk{flex:none;width:28px;height:28px;border-radius:50%;border:2px solid var(--ink-3);display:grid;place-items:center;transition:background .25s,border-color .25s,transform .3s cubic-bezier(.3,1.6,.5,1)}
+.chk svg{width:16px;height:16px;color:#fff;opacity:0;transform:scale(.4);transition:opacity .2s,transform .35s cubic-bezier(.3,1.6,.5,1)}
+.done .chk{background:var(--good);border-color:var(--good)}
+.done .chk svg{opacity:1;transform:none}
+.row .tx{flex:1;min-width:0}
+.row .tx b{display:block;font-weight:500;font-size:16px;line-height:1.3}
+.row.done .tx b{color:var(--ink-2)}
+.row .tx span{font-size:13px;color:var(--ink-3)}
+.row .num{font:600 13px/1 var(--font-round);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.row.pop .chk{animation:pop .5s cubic-bezier(.3,1.6,.5,1)}
+@keyframes pop{40%{transform:scale(1.35)}}
+.empty{padding:30px 16px;text-align:center;color:var(--ink-2)}
+
+/* Progress */
+.card{border-radius:24px;padding:18px;margin-bottom:16px}
+.rank{display:flex;gap:16px;align-items:center}
+.wings{width:64px;height:64px;flex:none;border-radius:20px;display:grid;place-items:center;background:linear-gradient(160deg,#2a6df4,#0a2a7a);color:#ffd34d;box-shadow:inset 0 1px 0 rgba(255,255,255,.35),0 8px 20px rgba(10,60,180,.35)}
+.wings svg{width:40px;height:40px}
+.rank h3{margin:0;font:700 22px/1.15 var(--font);letter-spacing:-.015em}
+.rank p{margin:2px 0 0;color:var(--ink-2);font-size:14px}
+.xpbar{height:12px;border-radius:9px;background:var(--fill);margin-top:14px;overflow:hidden}
+.xpbar i{display:block;height:100%;border-radius:9px;background:linear-gradient(90deg,#ffcf3d,#ff9f0a);transition:width 1s cubic-bezier(.2,.9,.3,1)}
+.xpnote{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-2);margin-top:6px;font-variant-numeric:tabular-nums}
+.rings3{display:flex;justify-content:space-around;gap:8px;text-align:center}
+.rings3 .cap{font-size:12.5px;color:var(--ink-2);margin-top:6px}
+.sec{font:700 20px/1.2 var(--font);letter-spacing:-.015em;margin:26px 4px 10px}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:4px;overflow-x:auto;padding-bottom:4px}
+.heat i{width:15px;height:15px;border-radius:4px;background:var(--fill)}
+.heat i.l1{background:color-mix(in srgb,var(--good) 45%,transparent)} .heat i.l2{background:color-mix(in srgb,var(--good) 75%,transparent)} .heat i.l3{background:var(--good)}
+.heat i.today{outline:2px solid var(--accent);outline-offset:1px}
+.heatcap{display:flex;justify-content:space-between;color:var(--ink-3);font-size:12px;margin-top:8px}
+.badges{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:12px}
+.badge{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;font-size:12.5px;line-height:1.2;color:var(--ink-2)}
+.medal{width:70px;height:70px;border-radius:50%;display:grid;place-items:center;color:#fff;font:800 20px/1 var(--font-round);position:relative;
+  background:linear-gradient(160deg,var(--c1),var(--c2));box-shadow:inset 0 2px 0 rgba(255,255,255,.4),inset 0 -4px 0 rgba(0,0,0,.18),0 6px 16px color-mix(in srgb,var(--c2) 40%,transparent)}
+.medal::after{content:"";position:absolute;inset:6px;border-radius:50%;border:2px dashed rgba(255,255,255,.45)}
+.badge.locked .medal{filter:grayscale(1);opacity:.35;box-shadow:none}
+.badge b{color:var(--ink);font-weight:600;font-size:13px}
+.settings .rowx{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px}
+.settings .rowx+.rowx{border-top:.5px solid var(--hair)}
+.stepper{display:flex;border-radius:10px;background:var(--fill);overflow:hidden}
+.stepper button{width:44px;height:34px;font-size:20px;font-weight:500}
+.stepper span{min-width:30px;display:grid;place-items:center;font-weight:600;font-variant-numeric:tabular-nums}
+.sync{font-size:13px;color:var(--ink-3);text-align:center;margin-top:8px}
+.sync .card{text-align:left;font-size:15px;color:var(--ink)}
+
+/* Tab bar */
+.tabbar{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 14px);transform:translateX(-50%);z-index:30;display:flex;padding:5px;border-radius:999px;gap:2px}
+.tabbar button{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;width:92px;height:56px;border-radius:999px;font-size:11px;font-weight:600;color:var(--ink-2);transition:color .25s}
+.tabbar button svg{width:24px;height:24px}
+.tabbar button.on{color:var(--accent)}
+.tabbar .knob{position:absolute;top:5px;height:56px;width:92px;border-radius:999px;background:var(--fill);box-shadow:inset 0 1px 0 var(--glass-edge)}
+
+/* Sheet */
+.scrim{position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.32);opacity:0;pointer-events:none;transition:opacity .3s}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;max-width:680px;margin:0 auto;height:calc(100% - env(safe-area-inset-top) - 18px);
+  border-radius:34px 34px 0 0;background:var(--glass-strong);-webkit-backdrop-filter:blur(40px) saturate(180%);backdrop-filter:blur(40px) saturate(180%);
+  box-shadow:inset 0 1px 0 var(--glass-edge),var(--shadow-lg);transform:translateY(110%);display:flex;flex-direction:column;will-change:transform;visibility:hidden}
+.sheet.open{visibility:visible}
+.grab{flex:none;padding:8px 18px 6px;touch-action:none;cursor:grab}
+.grab .h{width:40px;height:5px;border-radius:9px;background:var(--ink-3);opacity:.5;margin:0 auto 10px}
+.sh-top{display:flex;align-items:flex-start;gap:12px}
+.sh-top .tx{flex:1;min-width:0}
+.sh-k{font:600 13px/1.2 var(--font);color:var(--c1);text-transform:uppercase;letter-spacing:.06em}
+.sh-title{font:700 26px/1.12 var(--font);letter-spacing:-.022em;margin:6px 0 4px;text-wrap:balance}
+.sh-meta{font-size:14px;color:var(--ink-2)}
+.xbtn{width:34px;height:34px;border-radius:50%;background:var(--fill);display:grid;place-items:center;flex:none;color:var(--ink-2)}
+.xbtn svg{width:16px;height:16px}
+.steps{display:flex;gap:6px;margin:14px 0 4px}
+.steps i{flex:1;height:5px;border-radius:9px;background:var(--fill);overflow:hidden}
+.steps i b{display:block;height:100%;width:0;background:var(--c1);border-radius:9px;transition:width .6s cubic-bezier(.2,.9,.3,1)}
+.sh-body{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:8px 18px calc(env(safe-area-inset-bottom) + 24px)}
+.blk{border-radius:22px;background:var(--card);padding:16px;margin:12px 0;box-shadow:inset 0 0 0 .5px var(--hair)}
+.blk h5{margin:0 0 4px;font:700 17px/1.2 var(--font);display:flex;align-items:center;gap:8px}
+.blk h5 .xp{margin-left:auto;font:700 12.5px/1 var(--font-round);color:#c98a00;background:color-mix(in srgb,var(--gold) 20%,transparent);padding:5px 8px;border-radius:999px}
+.blk .hint{font-size:14px;color:var(--ink-2);margin:0 0 10px}
+.ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;color:#fff;flex:none}
+.ico svg{width:17px;height:17px}
+
+/* Reading as a flight: waypoints along a route */
+.wps{position:relative;margin:6px 0 0;padding-left:4px}
+.wps .line{position:absolute;left:21px;top:22px;bottom:22px;width:3px;border-radius:3px;background:repeating-linear-gradient(var(--ink-3) 0 6px,transparent 6px 12px);opacity:.45}
+.wps .fill{position:absolute;left:21px;top:22px;width:3px;border-radius:3px;background:var(--c1);height:0;transition:height .6s cubic-bezier(.2,.9,.3,1)}
+.plane{position:absolute;left:8px;top:8px;width:30px;height:30px;border-radius:50%;background:var(--c1);color:#fff;display:grid;place-items:center;z-index:2;box-shadow:0 4px 12px color-mix(in srgb,var(--c1) 50%,transparent)}
+.plane svg{width:18px;height:18px;transform:rotate(90deg)}
+.wp{position:relative;display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:9px 0;min-height:46px}
+.wp .dot{flex:none;width:36px;height:28px;display:grid;place-items:center}
+.wp .dot i{width:14px;height:14px;border-radius:50%;border:3px solid var(--ink-3);background:var(--card);transition:all .3s cubic-bezier(.3,1.6,.5,1)}
+.wp.on .dot i{background:var(--c1);border-color:var(--c1);transform:scale(1.15)}
+.wp .w{flex:1;font-size:15.5px;line-height:1.3}
+.wp.on .w{color:var(--ink-2);text-decoration:line-through;text-decoration-color:color-mix(in srgb,var(--ink-3) 70%,transparent)}
+.wp .tag{font:700 11px/1 var(--font-round);color:var(--ink-3)}
+.landed{display:none;margin-top:8px;padding:10px 12px;border-radius:14px;background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good);font-weight:600;font-size:14.5px}
+.landed.on{display:block;animation:viewIn .4s}
+
+.learn{display:flex;flex-direction:column;gap:10px}
+.lc{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;padding:13px;border-radius:16px;background:var(--fill);transition:background .25s, transform .12s}
+.lc:active{transform:scale(.985)}
+.lc .q{flex:1;font-size:15.5px;line-height:1.35}
+.lc .q small{display:block;font:700 11px/1 var(--font-round);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.lc.on{background:color-mix(in srgb,var(--good) 14%,transparent)}
+.lc.on .q small{color:var(--good)}
+.task{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;padding:2px 0}
+.task .q{flex:1;font-size:15.5px;line-height:1.4}
+.task.on .q{color:var(--ink-2)}
+.task + .task{margin-top:12px;padding-top:12px;border-top:.5px solid var(--hair)}
+.kicker{font:700 11px/1 var(--font-round);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;display:block}
+.kicker.e{color:#8b5cf6}
+.notes{width:100%;min-height:96px;border-radius:14px;border:0;padding:12px;background:var(--fill);resize:vertical;font-size:15.5px;line-height:1.45;outline:none}
+.notes:focus{box-shadow:0 0 0 2px var(--accent)}
+.timer{display:flex;align-items:center;gap:14px}
+.timer .tbtns{display:flex;gap:8px;flex-wrap:wrap}
+.timer .tbtns .btn{height:40px;padding:0 16px;font-size:15px}
+.finish{position:sticky;bottom:calc(-1 * (env(safe-area-inset-bottom) + 24px));margin:6px -18px 0;padding:14px 18px calc(env(safe-area-inset-bottom) + 20px);background:var(--glass-strong);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);box-shadow:0 -.5px 0 var(--hair)}
+.finish .why{font-size:13.5px;color:var(--ink-2);text-align:center;margin-top:8px}
+.donepill{display:flex;align-items:center;justify-content:center;gap:8px;height:52px;border-radius:999px;background:color-mix(in srgb,var(--good) 16%,transparent);color:var(--good);font-weight:700}
+
+/* XP float + toast + modal */
+.xpf{position:fixed;z-index:60;pointer-events:none;font:800 16px/1 var(--font-round);color:#e09600;text-shadow:0 1px 0 rgba(255,255,255,.6);animation:xpf .9s cubic-bezier(.2,.9,.3,1) forwards}
+@keyframes xpf{0%{opacity:0;transform:translate(-50%,0) scale(.7)}20%{opacity:1;transform:translate(-50%,-10px) scale(1.1)}100%{opacity:0;transform:translate(-50%,-46px) scale(1)}}
+.toast{position:fixed;left:50%;top:calc(env(safe-area-inset-top) + 56px);white-space:nowrap;max-width:calc(100% - 32px);z-index:70;transform:translate(-50%,-140%);padding:10px 16px;border-radius:999px;font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px;transition:transform .5s cubic-bezier(.3,1.3,.5,1)}
+.toast.on{transform:translate(-50%,0)}
+.toast button{color:var(--accent);font-weight:700;margin-left:6px}
+.modal{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .3s}
+.modal.on{opacity:1;pointer-events:auto}
+.mbox{width:min(360px,100%);border-radius:30px;padding:26px 22px 20px;text-align:center;transform:scale(.85);transition:transform .5s cubic-bezier(.3,1.4,.5,1)}
+.modal.on .mbox{transform:none}
+.mbox .medal{width:96px;height:96px;margin:0 auto 14px;font-size:26px}
+.mbox h3{margin:0 0 6px;font:700 24px/1.15 var(--font);letter-spacing:-.02em}
+.mbox p{margin:0 0 18px;color:var(--ink-2);font-size:15.5px}
+.mbox .btns{display:flex;flex-direction:column;gap:10px}
+#fx{position:fixed;inset:0;z-index:90;pointer-events:none;width:100%;height:100%}
+
+@media (max-width:420px){
+  .stop .lab{width:calc(50% - 52px);font-size:13px} .stop .lab b{font-size:13.5px}
+  .tabbar button{width:84px} .tabbar .knob{width:84px}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition-duration:.15s!important}
+}
+@media (prefers-reduced-transparency: reduce){
+  .glass,.sheet{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--glass-strong)}
+}
+</style>
+</head>
+<body>
+<div class="sky" aria-hidden="true"><i></i><i></i><i></i></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-flame" viewBox="0 0 24 24"><path fill="currentColor" d="M12.6 2.2c.4 3-1.2 4.6-2.6 6.1C8.6 9.8 7 11.4 7 14.2A5 5 0 0 0 12 19.5a5 5 0 0 0 5-5.3c0-1.8-.8-3.3-1.7-4.4-.2 1.3-.9 2.3-2 2.8.6-3.4-.3-7.1-.7-10.4Z"/><path fill="currentColor" opacity=".55" d="M12 22a7.5 7.5 0 0 1-7.5-7.6c0-1.8.5-3.3 1.3-4.6-.1.6-.1 1.2-.1 1.8A6.3 6.3 0 0 0 12 18.1a6.3 6.3 0 0 0 6.3-6.5c0-.5 0-1-.1-1.4.8 1.2 1.3 2.6 1.3 4.2A7.5 7.5 0 0 1 12 22Z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path fill="currentColor" d="M13.5 2 4.8 13.1c-.4.5 0 1.2.6 1.2h5.4L9.6 22l8.7-11.1c.4-.5 0-1.2-.6-1.2h-5.4L13.5 2Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-plane" viewBox="0 0 24 24"><path fill="currentColor" d="M21.4 15.6v-1.9L13.6 9V3.8a1.6 1.6 0 0 0-3.2 0V9l-7.8 4.7v1.9l7.8-2.4v5.1l-2.3 1.7v1.5l3.9-1.1 3.9 1.1v-1.5l-2.3-1.7v-5.1l7.8 2.4Z"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm12-10a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM8 17h7.5a3.5 3.5 0 0 0 0-7h-7a3.5 3.5 0 0 1 0-7H16"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m3.5 6 1.5 1.5L8 4.5M3.5 12.5 5 14l3-3M3.5 19 5 20.5l3-3M11.5 6.5H21M11.5 13H21M11.5 19.5H21"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 3v4"/></g></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v16H6.5a1 1 0 0 0 0 2H20v2H6.5A2.5 2.5 0 0 1 4 19.5v-15Z"/></symbol>
+  <symbol id="i-brain" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3a4 4 0 0 0-7.6 1.8A3.5 3.5 0 0 0 3 11a3.5 3.5 0 0 0 1.4 5.6A4 4 0 0 0 12 19V3Zm0 0a4 4 0 0 1 7.6 1.8A3.5 3.5 0 0 1 21 11a3.5 3.5 0 0 1-1.4 5.6A4 4 0 0 1 12 19V3Z" opacity=".95"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path fill="currentColor" d="M21 7.5a5.5 5.5 0 0 1-7.4 5.2l-7.3 7.3a2 2 0 0 1-2.8-2.8l7.3-7.3A5.5 5.5 0 0 1 17.6 2l-3.1 3.1.6 3.4 3.4.6L21.6 6c-.4.5-.6 1-.6 1.5Z"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path fill="currentColor" d="m14.1 5.1 4.8 4.8L8.6 20.2 3 21l.8-5.6L14.1 5.1Zm1.4-1.4 1.6-1.6a2 2 0 0 1 2.8 0l2 2a2 2 0 0 1 0 2.8l-1.6 1.6-4.8-4.8Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9 2h6"/></g></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path fill="currentColor" d="m12 2.8 2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.8 6.3 20l1.4-6.3-4.8-4.3 6.4-.7L12 2.8Z"/></symbol>
+  <symbol id="i-wings" viewBox="0 0 48 48"><path fill="currentColor" d="M24 17a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm-7 3.5c-4.6-.4-9.5-1.5-14-3.5 1.6 2.6 4.1 4.6 7.2 5.6-1.5.3-3 .3-4.6.1 2.1 2 5 3 8 2.9-.9.6-2 1-3.1 1.2 2.4 1 5 1 7.5.2a7 7 0 0 1-1-6.5Zm14 0c4.6-.4 9.5-1.5 14-3.5-1.6 2.6-4.1 4.6-7.2 5.6 1.5.3 3 .3 4.6.1-2.1 2-5 3-8 2.9.9.6 2 1 3.1 1.2-2.4 1-5 1-7.5.2a7 7 0 0 0 1-6.5Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.6-4.6"/></g></symbol>
+</svg>
+
+<header class="topbar glass" id="topbar">
+  <div class="t" id="toptitle">Flight Path</div>
+  <span class="chip timer glass" id="timerChip"><svg><use href="#i-clock"/></svg><span id="timerChipT">35:00</span></span>
+  <span class="chip flame glass" title="Day streak"><svg><use href="#i-flame"/></svg><span id="streakChip">0</span></span>
+  <span class="chip xp glass" title="Flight XP"><svg><use href="#i-bolt"/></svg><span id="xpChip">0</span></span>
+</header>
+
+<main>
+  <section class="view" id="v-path" aria-label="Flight path">
+    <h1 class="large">Pilot's Handbook of Aeronautical Knowledge</h1>
+    <p class="sub">143 sessions through the PHAK. One a day.</p>
+    <div class="hero glass" id="hero"></div>
+    <div id="route"></div>
+  </section>
+
+  <section class="view" id="v-checklist" aria-label="Checklist">
+    <h1 class="large">Checklist</h1>
+    <p class="sub" id="clSub">Sessions tick themselves when you press Complete session.</p>
+    <div class="seg" id="seg" role="tablist">
+      <span class="knob" id="segKnob"></span>
+      <button class="on" data-f="all" role="tab">All</button>
+      <button data-f="todo" role="tab">To do</button>
+      <button data-f="done" role="tab">Done</button>
+    </div>
+    <label class="search"><svg width="18" height="18"><use href="#i-search"/></svg><span class="sr">Search sessions</span><input id="q" type="search" placeholder="Search topics, e.g. density altitude"></label>
+    <div id="clist"></div>
+  </section>
+
+  <section class="view" id="v-progress" aria-label="Progress">
+    <h1 class="large">Logbook</h1>
+    <p class="sub">Your rank, streak and badges.</p>
+    <div id="prog"></div>
+  </section>
+</main>
+
+<nav class="tabbar glass" id="tabbar" aria-label="Sections">
+  <span class="knob" id="tabKnob"></span>
+  <button data-v="path" class="on"><svg><use href="#i-route"/></svg>Path</button>
+  <button data-v="checklist"><svg><use href="#i-list"/></svg>Checklist</button>
+  <button data-v="progress"><svg><use href="#i-chart"/></svg>Logbook</button>
+</nav>
+
+<div class="scrim" id="scrim"></div>
+<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+  <div class="grab" id="grab">
+    <div class="h"></div>
+    <div class="sh-top">
+      <div class="tx">
+        <div class="sh-k" id="shK"></div>
+        <h2 class="sh-title" id="shTitle"></h2>
+        <div class="sh-meta" id="shMeta"></div>
+      </div>
+      <button class="xbtn" id="shClose" aria-label="Close session"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div class="steps" id="shSteps"></div>
+  </div>
+  <div class="sh-body" id="shBody"></div>
+</section>
+
+<div class="toast glass" id="toast" role="status" aria-live="polite"></div>
+<div class="modal" id="modal"><div class="mbox glass" id="mbox"></div></div>
+<canvas id="fx"></canvas>
+
+<script src="config.js"></script>
+<script>
+const PHASES = [{"id": "Phase 0", "title": "Orientation (Ch 1)", "intro": "", "sessions": [{"n": 1, "title": "How aviation is regulated", "pages": "pp 1-1 to 1-9", "read": ["History of Flight", "History of the FAA", "The Role of the FAA", "The Code of Federal Regulations (CFR)", "Primary Locations of the FAA", "FAA Safety Team"], "learn": ["why aviation is regulated", "what the FAA does", "what 14 CFR is", "what Parts 1, 61 and 91 cover", "that ICAO sets world standards and each country's authority (FAA, CASA, CAAN) turns them into national law"], "do": "find 14 CFR Parts 1, 61 and 91 online and write one line on what each governs.", "ext": "", "extOnly": false}, {"n": 2, "title": "Where pilots get official information", "pages": "pp 1-9 to 1-14", "read": ["Obtaining Assistance from the FAA", "Aeronautical Information Manual (AIM)", "Handbooks", "Advisory Circulars (ACs)", "Flight Publications", "Notices to Airmen (NOTAMs)", "SPANS"], "learn": ["the difference between a regulation (law), the AIM (procedures), an Advisory Circular (guidance) and a handbook (education)", "what a NOTAM is and why you check it before every flight"], "do": "find one AC, one AIM chapter, and one current NOTAM for any airport.", "ext": "", "extOnly": false}, {"n": 3, "title": "Aircraft categories and pilot certificates", "pages": "pp 1-14 to 1-18", "read": ["Aircraft Classifications and Ultralight Vehicles", "Pilot Certifications", "Recreational Pilot", "Private Pilot", "Commercial Pilot", "Airline Transport Pilot"], "learn": ["category vs class vs type (e.g. airplane / single-engine land / C172)", "what each pilot certificate allows (privileges) and restricts (limitations)"], "do": "make a table of the four certificates with one privilege and one limitation each.", "ext": "", "extOnly": false}, {"n": 4, "title": "The path to a pilot licence", "pages": "pp 1-18 to 1-24", "read": ["Selecting a Flight School", "The Student Pilot", "Medical Certification Requirements", "Becoming a Pilot", "Knowledge and Skill Tests", "Role of the CFI", "Role of the Designated Pilot Examiner"], "learn": ["the three medical classes", "knowledge test vs practical test (checkride)", "who an instructor and an examiner are"], "do": "compare PPL requirements under FAA, CASA (Australia) and CAAN (Nepal): minimum hours, medical class, exams.", "ext": "", "extOnly": false}]}, {"id": "Phase 1", "title": "Atmosphere and principles of flight (Ch 4)", "intro": "", "sessions": [{"n": 5, "title": "The atmosphere and air as a fluid", "pages": "pp 4-1 to 4-3", "read": ["Structure of the Atmosphere", "Air is a Fluid", "Viscosity", "Friction", "Pressure"], "learn": ["the layers of the atmosphere (troposphere, tropopause, stratosphere)", "what air is made of", "what viscosity and friction mean for airflow over a surface", "pressure as force per area"], "do": "", "ext": "learn the International Standard Atmosphere (15 °C, 1013.25 hPa / 29.92 inHg at sea level, temperature falling about 2 °C per 1,000 ft). Write a Python function giving ISA temperature and pressure at any altitude up to 36,000 ft.", "extOnly": false}, {"n": 6, "title": "Pressure altitude and density altitude", "pages": "pp 4-3 to 4-5", "read": ["Atmospheric Pressure", "Pressure Altitude", "Density Altitude", "Effect of Pressure on Density", "Effect of Temperature on Density", "Effect of Humidity on Density"], "learn": ["what pressure altitude is", "what density altitude is (the altitude the aircraft \"feels\")", "why hot, high and humid all mean thinner air", "how thinner air reduces lift, engine power and propeller thrust"], "do": "compute density altitude for Darwin at 34 °C with QNH 1008 hPa (DA ≈ PA + 120 × (OAT − ISA temp)).", "ext": "", "extOnly": false}, {"n": 7, "title": "How a wing produces lift", "pages": "pp 4-5 to 4-6", "read": ["Theories in the Production of Lift", "Newton's Basic Laws of Motion", "Bernoulli's Principle of Differential Pressure"], "learn": ["Newton's three laws applied to a wing (the wing pushes air down, the air pushes the wing up)", "Bernoulli's principle (faster flow = lower pressure)", "why both are true at once"], "do": "", "ext": "write out the continuity and Bernoulli equations. Look up why the \"equal transit time\" explanation is wrong.", "extOnly": false}, {"n": 8, "title": "Airfoils and the three-dimensional wing", "pages": "pp 4-6 to 4-9", "read": ["Airfoil Design", "Low Pressure Above", "High Pressure Below", "Pressure Distribution", "Airfoil Behavior", "A Third Dimension"], "learn": ["airfoil terms (leading edge, trailing edge, chord line, camber, relative wind, angle of attack)", "how the pressure distribution and centre of pressure move as angle of attack changes", "why a real wing loses some lift at its tips"], "do": "", "ext": "plot the NACA 2412 airfoil (used on the C172) in Python from its equation and label the parts.", "extOnly": false}]}, {"id": "Phase 2", "title": "Aerodynamics of flight (Ch 5)", "intro": "The biggest and most important chapter. Take your time here.", "sessions": [{"n": 9, "title": "The four forces and thrust", "pages": "pp 5-1 to 5-3", "read": ["Forces Acting on the Aircraft", "Thrust"], "learn": ["lift, weight, thrust and drag", "that in steady flight the forces balance", "how adding power makes you faster or lets you fly at a higher angle of attack"], "do": "draw the four-force diagram for level flight, a climb and a descent.", "ext": "", "extOnly": false}, {"n": 10, "title": "Lift and the lift/drag ratio", "pages": "pp 5-3 to 5-6", "read": ["Lift", "Lift/Drag Ratio"], "learn": ["the lift equation and what each term means", "that to keep lift constant, slower flight needs a higher angle of attack", "what L/D max is and why it gives the best glide"], "do": "", "ext": "L = ½ρV²SC\\_L. With C172 numbers (S = 16.2 m², mass 1,100 kg, 110 kt at sea level), calculate the cruise lift coefficient.", "extOnly": false}, {"n": 11, "title": "Drag", "pages": "pp 5-6 to 5-8", "read": ["Drag", "Parasite Drag (form, interference, skin friction)", "Induced Drag"], "learn": ["the three types of parasite drag", "why parasite drag grows with speed and induced drag shrinks with speed", "the total drag curve and the speed where drag is lowest"], "do": "", "ext": "drag polar C\\_D = C\\_D0 + C\\_L²/(πeAR). Plot parasite, induced and total drag against airspeed and find minimum-drag speed.", "extOnly": false}, {"n": 12, "title": "Wingtip vortices and wake turbulence", "pages": "pp 5-8 to 5-11", "read": ["Weight", "Wingtip Vortices", "Formation of Vortices", "Avoiding Wake Turbulence"], "learn": ["why vortices form", "that heavy, clean, slow aircraft make the strongest ones", "how vortices sink and drift with wind", "where to take off and land behind a heavy aircraft"], "do": "sketch the takeoff and landing avoidance rules.", "ext": "", "extOnly": false}, {"n": 13, "title": "Ground effect", "pages": "p 5-11", "read": ["Ground Effect"], "learn": ["why induced drag drops within about one wingspan of the ground", "why aircraft float in the flare", "the danger of lifting off too slowly and then climbing out of ground effect"], "do": "", "ext": "", "extOnly": false}, {"n": 14, "title": "Axes of rotation and moments", "pages": "pp 5-12 to 5-14", "read": ["Axes of an Aircraft", "Moment and Moment Arm"], "learn": ["the longitudinal, lateral and vertical axes", "which motion (roll, pitch, yaw) and which control (aileron, elevator, rudder) goes with each", "moment = force × arm", "all rotation is about the CG"], "do": "", "ext": "", "extOnly": false}, {"n": 15, "title": "Stability and pitch stability", "pages": "pp 5-14 to 5-17", "read": ["Aircraft Design Characteristics", "Stability", "Static Stability", "Dynamic Stability", "Longitudinal Stability (Pitching)"], "learn": ["positive, neutral and negative static and dynamic stability", "why the CG sits ahead of the centre of lift", "why the tail pushes down", "why the nose drops when you reduce power"], "do": "", "ext": "in Python, plot a damped, an undamped and a growing oscillation and match each to a type of dynamic stability.", "extOnly": false}, {"n": 16, "title": "Roll and yaw stability", "pages": "pp 5-17 to 5-20", "read": ["Lateral Stability (Rolling)", "Directional Stability (Yawing)", "Free Directional Oscillations (Dutch Roll)", "Spiral Instability"], "learn": ["what gives roll stability (dihedral, sweepback, keel effect, weight distribution)", "what gives yaw stability (the vertical fin)", "what Dutch roll and spiral instability are and why designers trade one against the other"], "do": "", "ext": "", "extOnly": false}, {"n": 17, "title": "Wing planform", "pages": "pp 5-20 to 5-22", "read": ["Effect of Wing Planform"], "learn": ["rectangular, elliptical, tapered, swept and delta wings", "aspect ratio", "where each wing stalls first (root or tip) and why a rectangular wing gives good stall warning"], "do": "", "ext": "", "extOnly": false}, {"n": 18, "title": "Forces in turns, climbs and descents", "pages": "pp 5-22 to 5-25", "read": ["Aerodynamic Forces in Flight Maneuvers", "Forces in Turns", "Forces in Climbs", "Forces in Descents"], "learn": ["that the horizontal part of lift turns the aircraft", "why you need more back pressure in a turn", "overbanking tendency", "what happens to airspeed when you climb or descend without changing power"], "do": "", "ext": "draw a free-body diagram of a coordinated banked turn.", "extOnly": false}, {"n": 19, "title": "Stalls", "pages": "pp 5-25 to 5-28", "read": ["Stalls", "Angle of Attack Indicators"], "learn": ["the critical angle of attack", "that a wing can stall at any airspeed or attitude", "that recovery always starts by reducing angle of attack", "how an AoA indicator works"], "do": "", "ext": "", "extOnly": false}, {"n": 20, "title": "How a propeller works", "pages": "pp 5-28 to 5-30", "read": ["Basic Propeller Principles"], "learn": ["the propeller as a rotating wing", "why the blade is twisted", "blade angle, pitch and propeller efficiency"], "do": "", "ext": "", "extOnly": false}, {"n": 21, "title": "Left-turning tendencies", "pages": "pp 5-30 to 5-33", "read": ["Torque and P-Factor", "Torque Reaction", "Corkscrew Effect", "Gyroscopic Action", "Asymmetric Loading (P-Factor)"], "learn": ["the four left-turning effects", "when each is strongest (takeoff, climb, raising a tailwheel)", "why you need right rudder"], "do": "", "ext": "", "extOnly": false}, {"n": 22, "title": "Load factor", "pages": "pp 5-33 to 5-36", "read": ["Load Factors", "Load Factors in Aircraft Design", "Load Factors in Steep Turns", "Load Factors and Stalling Speeds"], "learn": ["load factor in G", "why a 60° bank means 2 G", "why stall speed rises with load factor", "limit loads for normal (+3.8 G), utility (+4.4 G) and aerobatic (+6 G) categories"], "do": "", "ext": "n = 1/cos φ and V\\_s(turn) = V\\_s × √n. Tabulate and plot for bank angles 0–75°.", "extOnly": false}, {"n": 23, "title": "V-g diagram and turn performance", "pages": "pp 5-36 to 5-40", "read": ["Load Factors and Flight Maneuvers", "Vg Diagram", "Rate of Turn", "Radius of Turn"], "learn": ["manoeuvring speed (Va)", "how to read a V-g diagram (stall line, Va, Vno, Vne, limit loads)", "how bank and speed change rate and radius of turn"], "do": "", "ext": "derive R = V²/(g·tan φ) and rate = g·tan φ / V.", "extOnly": false}, {"n": 24, "title": "How weight and CG affect flight", "pages": "pp 5-40 to 5-44", "read": ["Weight and Balance", "Effect of Weight on Flight Performance", "on Aircraft Structure", "on Stability and Controllability", "Effect of Load Distribution"], "learn": ["what extra weight does to takeoff, climb, stall speed and range", "what a forward vs an aft CG does to stall speed, cruise speed, stability and stall recovery"], "do": "", "ext": "", "extOnly": false}, {"n": 25, "title": "Introduction to high-speed flight", "pages": "pp 5-44 to 5-46", "read": ["High Speed Flight", "Subsonic Versus Supersonic Flow", "Speed Ranges", "Mach Number Versus Airspeed", "Boundary Layer (laminar, turbulent, separation)"], "learn": ["subsonic, transonic, supersonic and hypersonic ranges", "Mach number and critical Mach number", "laminar vs turbulent boundary layer and flow separation"], "do": "", "ext": "speed of sound a = √(γRT). Compute Mach 0.78 in knots at FL350.", "extOnly": false}, {"n": 26, "title": "Shock waves and swept wings", "pages": "pp 5-46 to 5-51", "read": ["Shock Waves", "Sweepback", "Mach Buffet Boundaries", "High Speed Flight Controls"], "learn": ["what a shock wave is and how it causes separation", "why swept wings raise the critical Mach number", "low- and high-speed buffet and \"coffin corner\"", "Mach tuck"], "do": "", "ext": "", "extOnly": false}, {"n": 27, "title": "Review day", "pages": "", "read": [], "learn": [], "do": "re-read your notes for S01–S26. Redraw the total drag curve (S11) and the load factor table (S22) from memory.", "ext": "", "extOnly": false}]}, {"id": "Phase 3", "title": "Aircraft construction and flight controls (Ch 3, Ch 6)", "intro": "", "sessions": [{"n": 28, "title": "Airworthiness and the main parts of an aircraft", "pages": "pp 3-1 to 3-8", "read": ["Aircraft Design, Certification, and Airworthiness", "A Note About Light Sport Aircraft", "Major Components (Fuselage, Wings, Empennage, Landing Gear, The Powerplant)", "Subcomponents"], "learn": ["what \"airworthy\" means (matches its approved design and is in safe condition)", "the job of each major component", "wing structure (spars, ribs, stringers, skin)", "high-wing vs low-wing"], "do": "label a photo of a Cessna 172 with every component and control surface.", "ext": "", "extOnly": false}, {"n": 29, "title": "How aircraft are built", "pages": "pp 3-8 to 3-13", "read": ["Types of Aircraft Construction", "Truss Structure", "Semimonocoque", "Composite Construction (all subsections)", "Instrumentation: Moving into the Future", "Global Positioning System"], "learn": ["truss vs monocoque vs semimonocoque", "advantages and disadvantages of composites (including hidden damage and lightning strikes)", "the three groups of instruments (control, navigation, performance)"], "do": "", "ext": "", "extOnly": false}, {"n": 30, "title": "Control systems and ailerons", "pages": "pp 6-1 to 6-5", "read": ["Flight Control Systems", "Flight Controls", "Primary Flight Controls", "Ailerons (adverse yaw, differential ailerons, Frise-type ailerons, coupled ailerons and rudder, flaperons)"], "learn": ["mechanical, hydraulic and fly-by-wire controls", "how ailerons roll the aircraft", "what adverse yaw is and the ways designers reduce it"], "do": "", "ext": "", "extOnly": false}, {"n": 31, "title": "Elevator, tail designs and rudder", "pages": "pp 6-5 to 6-8", "read": ["Elevator", "T-Tail", "Stabilator", "Canard", "Rudder", "V-Tail"], "learn": ["how the elevator controls pitch", "why T-tails are at risk of a deep stall", "how a stabilator works and why it has an antiservo tab", "what a canard and a V-tail are"], "do": "", "ext": "", "extOnly": false}, {"n": 32, "title": "Flaps, slats and spoilers", "pages": "pp 6-8 to 6-10", "read": ["Secondary Flight Controls", "Flaps", "Leading Edge Devices", "Spoilers"], "learn": ["plain, split, slotted and Fowler flaps", "slots and slats", "how each lets you fly slower or descend steeper", "the two uses of spoilers"], "do": "", "ext": "sketch C\\_L against angle of attack with and without flaps and with slats.", "extOnly": false}, {"n": 33, "title": "Trim, tabs and autopilot", "pages": "pp 6-10 to 6-12", "read": ["Trim Tabs", "Balance Tabs", "Servo Tabs", "Antiservo Tabs", "Ground Adjustable Tabs", "Adjustable Stabilizer", "Autopilot"], "learn": ["what trim does (removes control pressure)", "why a trim tab moves opposite to its control surface", "the difference between each type of tab", "what an autopilot controls"], "do": "read a summary of Alaska Airlines Flight 261 (jammed stabiliser trim).", "ext": "", "extOnly": false}]}, {"id": "Phase 4", "title": "Aircraft systems (Ch 7)", "intro": "", "sessions": [{"n": 34, "title": "The piston engine", "pages": "pp 7-1 to 7-4", "read": ["Powerplant", "Reciprocating Engines"], "learn": ["radial vs horizontally opposed engines", "the four strokes (intake, compression, power, exhaust)", "the main parts (cylinder, piston, connecting rod, crankshaft, valves, camshaft)"], "do": "", "ext": "Otto cycle efficiency η = 1 − 1/r^(γ−1). Compute it for a compression ratio of 8.5.", "extOnly": false}, {"n": 35, "title": "Propeller types", "pages": "pp 7-4 to 7-7", "read": ["Propeller", "Fixed-Pitch Propeller", "Adjustable-Pitch Propeller", "Propeller Overspeed in Piston Engine Aircraft"], "learn": ["climb vs cruise fixed-pitch props", "how a constant-speed propeller and its governor work", "manifold pressure and RPM as the two power gauges", "why you avoid high manifold pressure with low RPM"], "do": "", "ext": "", "extOnly": false}, {"n": 36, "title": "Carburettor and carburettor icing", "pages": "pp 7-7 to 7-11", "read": ["Induction Systems", "Carburetor Systems", "Mixture Control", "Carburetor Icing", "Carburetor Heat", "Carburetor Air Temperature Gauge", "Outside Air Temperature Gauge"], "learn": ["how a float carburettor works (venturi)", "why you lean the mixture as you climb", "the conditions for carb ice (it can form even on warm, humid days)", "what carb heat does and its side effects"], "do": "", "ext": "", "extOnly": false}, {"n": 37, "title": "Fuel injection, superchargers and turbochargers", "pages": "pp 7-11 to 7-15", "read": ["Fuel Injection Systems", "Superchargers and Turbosuperchargers", "Superchargers", "Turbosuperchargers", "System Operation", "High Altitude Performance"], "learn": ["pros and cons of fuel injection", "supercharger (engine-driven) vs turbocharger (exhaust-driven)", "the wastegate", "critical altitude", "why turbocharging helps at high-elevation airports"], "do": "", "ext": "", "extOnly": false}, {"n": 38, "title": "Ignition, oil, cooling, exhaust and starting", "pages": "pp 7-15 to 7-18", "read": ["Ignition System", "Oil Systems", "Engine Cooling Systems", "Exhaust Systems", "Starting System"], "learn": ["why there are two magnetos and why they don't need the battery", "what the magneto check on run-up detects", "the four jobs of oil", "how cowl flaps and cylinder head temperature work", "why an exhaust leak can cause CO poisoning"], "do": "", "ext": "", "extOnly": false}, {"n": 39, "title": "Abnormal combustion and FADEC", "pages": "pp 7-18 to 7-20", "read": ["Combustion", "Full Authority Digital Engine Control (FADEC)"], "learn": ["detonation vs pre-ignition (causes, signs, fixes)", "why using the wrong fuel grade is dangerous", "what FADEC automates"], "do": "", "ext": "", "extOnly": false}, {"n": 40, "title": "Jet engine types and instruments", "pages": "pp 7-20 to 7-23", "read": ["Turbine Engines", "Turbojet", "Turboprop", "Turbofan", "Turboshaft", "Turbine Engine Instruments (EPR, EGT, Torquemeter, N1, N2)"], "learn": ["the four turbine types and where each is used", "what each turbine instrument measures"], "do": "", "ext": "sketch a two-spool turbofan, mark N1 and N2, and explain bypass ratio and the Brayton cycle.", "extOnly": false}, {"n": 41, "title": "Jet engine operating problems", "pages": "pp 7-23 to 7-25", "read": ["Turbine Engine Operational Considerations (temperature limits, thrust variations, FOD, hot/hung start, compressor stalls, flameout)", "Performance Comparison"], "learn": ["each failure mode and its cause", "why turbines prefer high altitude and high speed while pistons prefer low altitude"], "do": "", "ext": "", "extOnly": false}, {"n": 42, "title": "Fuel systems and fuel safety", "pages": "pp 7-25 to 7-29", "read": ["Airframe Systems", "Fuel Systems (gravity-feed, fuel-pump, primer, tanks, gauges, selectors, strainers/sumps/drains, grades, contamination, fuel system icing)", "Refueling Procedures"], "learn": ["gravity vs pump-fed systems", "fuel colours (100LL blue, Jet A clear/straw)", "why you sump the tanks before flight", "how to prevent misfuelling and static sparks during refuelling"], "do": "", "ext": "", "extOnly": false}, {"n": 43, "title": "Cabin heating and the electrical system", "pages": "pp 7-29 to 7-31", "read": ["Heating System (fuel fired, exhaust, combustion, bleed air)", "Electrical System"], "learn": ["the four heating types and the CO risk of exhaust heaters", "alternator vs generator", "battery, master switch, bus bar, circuit breakers, ammeter and loadmeter"], "do": "", "ext": "draw the electrical schematic of a light aircraft.", "extOnly": false}, {"n": 44, "title": "Hydraulics, landing gear and brakes", "pages": "pp 7-31 to 7-34", "read": ["Hydraulic Systems", "Landing Gear (tricycle, tailwheel, fixed and retractable)", "Brakes"], "learn": ["how a hydraulic system multiplies force (Pascal's law)", "tricycle vs tailwheel and why tailwheels ground loop", "how retractable gear and brakes work"], "do": "", "ext": "", "extOnly": false}, {"n": 45, "title": "Pressurisation", "pages": "pp 7-34 to 7-37", "read": ["Pressurized Aircraft"], "learn": ["cabin altitude and differential pressure", "the outflow valve", "explosive, rapid and gradual decompression"], "do": "", "ext": "using your S05 ISA function, compute the differential pressure for an 8,000 ft cabin at FL410.", "extOnly": false}, {"n": 46, "title": "Oxygen systems", "pages": "pp 7-37 to 7-40", "read": ["Oxygen Systems", "Oxygen Masks", "Cannula", "Pressure-Demand", "Continuous-Flow", "Electrical Pulse-Demand", "Pulse Oximeters", "Servicing of Oxygen Systems"], "learn": ["the types of oxygen system and where each is used", "when oxygen is required by regulation (above 12,500 ft for more than 30 min, always above 14,000 ft)", "what a pulse oximeter reads", "oxygen fire risk"], "do": "", "ext": "", "extOnly": false}, {"n": 47, "title": "Ice protection", "pages": "pp 7-40 to 7-41", "read": ["Anti-Ice and Deice Systems", "Airfoil Anti-Ice and Deice", "Windscreen Anti-Ice", "Propeller Anti-Ice", "Other Anti-Ice and Deice Systems"], "learn": ["anti-ice (prevent) vs de-ice (remove)", "pneumatic boots, heated leading edges and fluid systems"], "do": "spend the remaining time redoing your S43 electrical schematic from memory.", "ext": "", "extOnly": false}]}, {"id": "Phase 5", "title": "Flight instruments (Ch 8)", "intro": "", "sessions": [{"n": 48, "title": "Pitot-static system and how an altimeter works", "pages": "pp 8-1 to 8-5", "read": ["Pitot-Static Flight Instruments", "Impact Pressure Chamber and Lines", "Static Pressure Chamber and Lines", "Altimeter", "Principle of Operation", "Effect of Nonstandard Pressure and Temperature"], "learn": ["which instruments use pitot pressure and which use static pressure", "how the altimeter's aneroid wafers work", "\"high to low, look out below\" for both pressure and temperature, and why cold weather reduces terrain clearance"], "do": "", "ext": "", "extOnly": false}, {"n": 49, "title": "Setting the altimeter and the five altitudes", "pages": "pp 8-5 to 8-7", "read": ["Setting the Altimeter", "Altimeter Operation", "Types of Altitude", "Instrument Check"], "learn": ["the altimeter setting window (QNH)", "29.92 inHg / 1013 hPa and the transition altitude", "indicated, true, absolute, pressure and density altitude", "which one a radio altimeter and a GPWS measure"], "do": "look up the transition altitude in the US, Australia and Nepal.", "ext": "", "extOnly": false}, {"n": 50, "title": "Vertical speed and airspeed indicators", "pages": "pp 8-7 to 8-10", "read": ["Vertical Speed Indicator (principle, check)", "Airspeed Indicator", "Airspeed Indicator Markings", "Other Airspeed Limitations", "Instrument Check"], "learn": ["how the VSI's calibrated leak works and why it lags", "the coloured arcs (white, green, yellow, red line) and the V-speed at each end", "speeds that aren't marked (Va, Vlo, Vle)"], "do": "", "ext": "IAS → CAS → TAS. Compute TAS from the density ratio and compare it with the \"+2% per 1,000 ft\" rule.", "extOnly": false}, {"n": 51, "title": "Pitot and static blockages", "pages": "pp 8-10 to 8-12", "read": ["Blockage of the Pitot-Static System", "Blocked Pitot System", "Blocked Static System"], "learn": ["what each instrument shows when the pitot tube is blocked (with and without the drain hole blocked) and when the static port is blocked", "what the alternate static source does"], "do": "make a table of instrument behaviour for each blockage. Read a summary of Air France 447.", "ext": "", "extOnly": false}, {"n": 52, "title": "Glass cockpit displays", "pages": "pp 8-12 to 8-15", "read": ["Electronic Flight Display (all subsections)", "Air Data Computer (ADC)", "Trend Vectors"], "learn": ["how a PFD shows airspeed, attitude, altitude, VSI and heading", "what the air data computer takes in and puts out", "what trend vectors predict"], "do": "", "ext": "", "extOnly": false}, {"n": 53, "title": "Gyroscopes and turn indicators", "pages": "pp 8-15 to 8-18", "read": ["Gyroscopic Flight Instruments", "Gyroscopic Principles", "Rigidity in Space", "Precession", "Sources of Power", "Turn Indicators", "Turn-and-Slip Indicator", "Turn Coordinator", "Inclinometer", "Yaw String", "Instrument Check"], "learn": ["rigidity in space and precession", "vacuum vs electric gyros", "turn coordinator vs turn-and-slip", "a standard-rate turn (3° per second)", "\"step on the ball\""], "do": "", "ext": "", "extOnly": false}, {"n": 54, "title": "Attitude and heading indicators, AHRS", "pages": "pp 8-18 to 8-22", "read": ["Attitude Indicator", "Heading Indicator", "Attitude and Heading Reference System (AHRS)", "The Flux Gate Compass System", "Remote Indicating Compass", "Instrument Check"], "learn": ["how the attitude indicator shows pitch and bank", "why the heading indicator drifts and must be reset to the compass", "how AHRS replaces spinning gyros", "what a flux gate senses"], "do": "", "ext": "AHRS fuses MEMS gyros, accelerometers and magnetometers. Read about the complementary filter and the Kalman filter.", "extOnly": false}, {"n": 55, "title": "The magnetic compass", "pages": "pp 8-22 to 8-28", "read": ["Angle of Attack Indicators", "Compass Systems", "Magnetic Compass", "Magnetic Compass Induced Errors", "The Vertical Card Magnetic Compass", "Lags or Leads", "Eddy Current Damping", "Outside Air Temperature (OAT) Gauge"], "learn": ["variation, deviation, magnetic dip, turning error and acceleration error", "ANDS and UNOS for the northern hemisphere, and that they reverse in the southern hemisphere"], "do": "", "ext": "", "extOnly": false}, {"n": 56, "title": "Review day", "pages": "", "read": [], "learn": [], "do": "re-read your notes for S28–S55. Redo the S51 blockage table and S50 TAS calculation from memory.", "ext": "", "extOnly": false}]}, {"id": "Phase 6", "title": "Flight manuals, documents and maintenance (Ch 9)", "intro": "", "sessions": [{"n": 57, "title": "The Pilot's Operating Handbook (POH)", "pages": "pp 9-1 to 9-5", "read": ["Preliminary Pages", "General (Section 1)", "Limitations (Section 2)", "Emergency Procedures (Section 3)", "Normal Procedures (Section 4)", "Performance (Section 5)", "Weight and Balance/Equipment List (Section 6)", "Systems Description (Section 7)", "Handling, Service, and Maintenance (Section 8)", "Supplements (Section 9)", "Safety Tips (Section 10)"], "learn": ["what each of the ten POH sections contains and when you'd open each one"], "do": "in the C172 data (PHAK Appendix A or a POH online), find one limitation, one emergency procedure and one performance chart.", "ext": "", "extOnly": false}, {"n": 58, "title": "Aircraft documents and inspections", "pages": "pp 9-6 to 9-9", "read": ["Aircraft Documents", "Certificate of Aircraft Registration", "Airworthiness Certificate", "Aircraft Maintenance", "Aircraft Inspections", "Annual Inspection", "100-Hour Inspection", "Other Inspection Programs (altimeter, transponder, ELT)", "Preflight Inspections"], "learn": ["documents that must be on board (memory aid ARROW)", "required inspections and their intervals (memory aid AV1ATE)", "when a 100-hour inspection applies"], "do": "", "ext": "", "extOnly": false}, {"n": 59, "title": "Flying with broken equipment; maintenance rules", "pages": "pp 9-9 to 9-13", "read": ["Minimum Equipment Lists (MEL) and Operations With Inoperative Equipment", "Preventive Maintenance", "Maintenance Entries", "Examples of Preventive Maintenance", "Repairs and Alterations", "Special Flight Permits", "Airworthiness Directives (ADs)", "Aircraft Owner/Operator Responsibilities"], "learn": ["the decision process for flying with an inoperative item (14 CFR 91.213)", "what a pilot may fix themselves", "what an AD is and why it's mandatory", "what a special flight (ferry) permit is"], "do": "", "ext": "", "extOnly": false}]}, {"id": "Phase 7", "title": "Weight and balance (Ch 10)", "intro": "", "sessions": [{"n": 60, "title": "Why weight and balance matter", "pages": "pp 10-1 to 10-4", "read": ["Weight Control", "Effects of Weight", "Weight Changes", "Balance, Stability, and Center of Gravity", "Effects of Adverse Balance", "Stability", "Control"], "learn": ["what overloading does", "what happens with the CG too far forward or too far aft", "why an aft CG can make stall recovery impossible"], "do": "", "ext": "", "extOnly": false}, {"n": 61, "title": "Weight and balance terms", "pages": "pp 10-4 to 10-7", "read": ["Management of Weight and Balance Control", "Terms and Definitions", "Principles of Weight and Balance Computations", "Weight and Balance Restrictions"], "learn": ["datum, arm, moment, CG (= total moment ÷ total weight)", "basic empty weight, useful load, payload, MAC", "standard weights (avgas 6 lb/gal, oil 7.5 lb/gal)"], "do": "", "ext": "", "extOnly": false}, {"n": 62, "title": "Calculating weight and CG", "pages": "pp 10-7 to 10-10", "read": ["Determining Loaded Weight and CG", "Computational Method", "Graph Method", "Table Method"], "learn": ["all three methods well enough to use any POH"], "do": "work the book's example by hand, then a second load of your own.", "ext": "", "extOnly": false}, {"n": 63, "title": "Special weight and balance cases", "pages": "pp 10-10 to 10-11", "read": ["Computations With a Negative Arm", "Computations With Zero Fuel Weight", "Shifting, Adding, and Removing Weight", "Weight Shifting", "Weight Addition or Removal"], "learn": ["negative arms", "zero fuel weight", "the weight-shift formula (weight moved ÷ total weight = CG change ÷ distance moved)"], "do": "", "ext": "write a Python calculator that checks a load against the CG envelope and plots CG as fuel burns.", "extOnly": false}]}, {"id": "Phase 8", "title": "Aircraft performance (Ch 11 + Appendix A)", "intro": "", "sessions": [{"n": 64, "title": "Performance and the atmosphere (revision)", "pages": "pp 11-1 to 11-6", "read": ["Importance of Performance Data", "Structure of the Atmosphere", "Atmospheric Pressure", "Pressure Altitude", "Density Altitude", "Effects of Pressure, Temperature and Humidity on Density"], "learn": ["why manufacturers publish performance data", "explain density altitude again without notes (it is the foundation for every chart that follows)"], "do": "", "ext": "", "extOnly": false}, {"n": 65, "title": "Climb performance", "pages": "pp 11-6 to 11-9", "read": ["Performance", "Straight-and-Level Flight", "Climb Performance", "Angle of Climb (AOC)", "Rate of Climb (ROC)", "Climb Performance Factors"], "learn": ["Vx (best angle, for obstacles) vs Vy (best rate, most height per minute)", "why angle comes from excess thrust and rate from excess power", "absolute and service ceilings"], "do": "", "ext": "", "extOnly": false}, {"n": 66, "title": "Range, endurance and the \"back side\" of the power curve", "pages": "pp 11-9 to 11-12", "read": ["Range Performance", "Region of Reversed Command"], "learn": ["best range speed vs best endurance speed", "what the region of reversed command is and why flying slow there needs more power"], "do": "", "ext": "from your S11 drag model, plot power required and mark both speeds.", "extOnly": false}, {"n": 67, "title": "Runway surface, slope and hydroplaning", "pages": "pp 11-12 to 11-14", "read": ["Takeoff and Landing Performance", "Runway Surface and Gradient", "Water on the Runway and Dynamic Hydroplaning"], "learn": ["how grass, gravel and slope change distances", "dynamic, viscous and reverted-rubber hydroplaning"], "do": "", "ext": "hydroplaning speed ≈ 9√(tyre pressure in psi). Compute it for a 30 psi tyre.", "extOnly": false}, {"n": 68, "title": "Takeoff and landing distances", "pages": "pp 11-14 to 11-18", "read": ["Takeoff Performance", "Landing Performance"], "learn": ["how weight, wind, density altitude and flap setting change takeoff and landing distance", "why a tailwind hurts much more than a headwind helps"], "do": "", "ext": "", "extOnly": false}, {"n": 69, "title": "V-speeds and how to read performance charts", "pages": "pp 11-18 to 11-21", "read": ["Performance Speeds", "Performance Charts", "Interpolation", "Density Altitude Charts"], "learn": ["the definitions of Vso, Vs1, Vx, Vy, Vfe, Vlo, Vle, Va, Vno, Vne, Vr", "how to interpolate between table values"], "do": "solve the book's density altitude chart example.", "ext": "", "extOnly": false}, {"n": 70, "title": "Takeoff, climb and cruise charts", "pages": "pp 11-21 to 11-25", "read": ["Takeoff Charts", "Climb and Cruise Charts"], "learn": [], "do": "using the C172R charts in Appendix A, find takeoff distance over a 50 ft obstacle for a heavy aircraft on a hot day, then the fuel needed to climb to 6,000 ft.", "ext": "", "extOnly": false}, {"n": 71, "title": "Crosswind, landing and stall speed charts", "pages": "pp 11-25 to 11-28", "read": ["Crosswind and Headwind Component Chart", "Landing Charts", "Stall Speed Performance Charts"], "learn": ["how to find crosswind and headwind components", "how bank angle and flaps change stall speed in the chart"], "do": "", "ext": "crosswind = V·sin θ, headwind = V·cos θ. Write a function and check it against the chart.", "extOnly": false}, {"n": 72, "title": "Airliner performance basics", "pages": "p 11-28 + extension", "read": ["Transport Category Aircraft Performance", "Air Carrier Obstacle Clearance Requirements"], "learn": ["why airliners must be able to lose an engine at any point and still stop or continue safely"], "do": "", "ext": "look up V1, VR, V2, balanced field length and second-segment climb gradient. These are core MSc-level topics.", "extOnly": false}, {"n": 73, "title": "Review day", "pages": "", "read": [], "learn": [], "do": "re-read notes S57–S72. Do one complete problem: load sheet → CG check → density altitude → takeoff distance → crosswind.", "ext": "", "extOnly": false}]}, {"id": "Phase 9", "title": "Weather theory (Ch 12)", "intro": "", "sessions": [{"n": 74, "title": "What the atmosphere is made of and why air moves", "pages": "pp 12-1 to 12-4", "read": ["Atmosphere", "Composition of the Atmosphere", "Atmospheric Circulation", "Atmospheric Pressure", "Coriolis Force"], "learn": ["the gases in air", "that uneven heating of the Earth drives circulation", "the three-cell model", "how the Coriolis force deflects wind (to the left in the southern hemisphere)"], "do": "", "ext": "", "extOnly": false}, {"n": 75, "title": "Measuring pressure; altitude and the body", "pages": "pp 12-4 to 12-6", "read": ["Measurement of Atmosphere Pressure", "Altitude and Atmospheric Pressure", "Altitude and Flight", "Altitude and the Human Body"], "learn": ["mercury and aneroid barometers", "station pressure vs sea-level pressure", "about 1 inHg (≈34 hPa) of pressure drop per 1,000 ft near sea level", "why the body needs oxygen at altitude"], "do": "", "ext": "", "extOnly": false}, {"n": 76, "title": "Wind patterns and convection", "pages": "pp 12-6 to 12-8", "read": ["Wind and Currents", "Wind Patterns", "Convective Currents"], "learn": ["how air flows around highs and lows", "sea breeze and land breeze (very visible in Darwin)", "thermals and why they cause bumpy air on a hot afternoon"], "do": "", "ext": "", "extOnly": false}, {"n": 77, "title": "Terrain effects and wind shear", "pages": "pp 12-8 to 12-12", "read": ["Effect of Obstructions on Wind", "Low-Level Wind Shear", "Wind and Pressure Representation on Surface Weather Maps"], "learn": ["mechanical turbulence", "mountain waves, rotors and lenticular clouds", "microbursts", "isobars and why tightly packed isobars mean strong wind"], "do": "", "ext": "", "extOnly": false}, {"n": 78, "title": "Atmospheric stability and inversions", "pages": "pp 12-12 to 12-13", "read": ["Atmospheric Stability", "Inversion"], "learn": ["stable air (layered cloud, smooth air, poor visibility) vs unstable air (heaped cloud, turbulence, good visibility)", "how an inversion traps haze and smoke"], "do": "", "ext": "compare dry (3 °C/1000 ft), saturated (\\~1.5 °C/1000 ft) and environmental lapse rates and show how they decide stability.", "extOnly": false}, {"n": 79, "title": "Humidity, dew point and fog", "pages": "pp 12-13 to 12-16", "read": ["Moisture and Temperature", "Relative Humidity", "Temperature/Dew Point Relationship", "Methods by Which Air Reaches the Saturation Point", "Dew and Frost", "Fog"], "learn": ["relative humidity", "dew point and the temperature/dew point spread", "the ways air becomes saturated", "radiation, advection, upslope, steam and ice fog"], "do": "estimate cloud base from today's Darwin METAR: (T − Td) ÷ 2.5 × 1,000 ft.", "ext": "", "extOnly": false}, {"n": 80, "title": "Clouds, ceiling, visibility and precipitation", "pages": "pp 12-16 to 12-18", "read": ["Clouds", "Ceiling", "Visibility", "Precipitation"], "learn": ["the four cloud families (low, middle, high, vertical development)", "which clouds signal turbulence, icing or storms", "the definition of ceiling", "what precipitation needs to form"], "do": "", "ext": "", "extOnly": false}, {"n": 81, "title": "Air masses and fronts", "pages": "pp 12-18 to 12-21", "read": ["Air Masses", "Fronts", "Warm Front", "Cold Front", "Comparison of Cold and Warm Fronts", "Wind Shifts", "Stationary Front", "Occluded Front"], "learn": ["how air masses are classified", "the weather before, during and after a warm front and a cold front", "stationary and occluded fronts"], "do": "draw a side view of a cold front and a warm front with their clouds.", "ext": "", "extOnly": false}, {"n": 82, "title": "Thunderstorms", "pages": "pp 12-21 to 12-25", "read": ["Thunderstorms", "Hazards", "Squall Line", "Tornadoes", "Turbulence", "Icing", "Hail", "Ceiling and Visibility", "Effect on Altimeters", "Lightning", "Engine Water Ingestion"], "learn": ["the three ingredients and three life-cycle stages of a thunderstorm", "every hazard listed", "why you stay at least 20 NM from a severe storm"], "do": "", "ext": "", "extOnly": false}]}, {"id": "Phase 10", "title": "Aviation weather services (Ch 13)", "intro": "", "sessions": [{"n": 83, "title": "How weather is observed", "pages": "pp 13-1 to 13-4", "read": ["Observations", "Surface Aviation Weather Observations", "Upper Air Observations", "Radar Observations", "Satellite"], "learn": ["what automated stations (ASOS/AWOS), weather balloons, radar and satellites each measure, and what each misses"], "do": "", "ext": "", "extOnly": false}, {"n": 84, "title": "Weather briefings", "pages": "pp 13-4 to 13-6", "read": ["Service Outlets", "Flight Service Station", "TIBS", "HIWAS", "Weather Briefings", "Standard, Abbreviated and Outlook Briefings"], "learn": ["when to ask for each type of briefing", "where pilots get briefings today (in Australia, NAIPS)"], "do": "", "ext": "", "extOnly": false}, {"n": 85, "title": "Decoding a METAR", "pages": "pp 13-6 to 13-8", "read": ["Aviation Weather Reports", "Aviation Routine Weather Report (METAR)"], "learn": ["every METAR field in order: station, time, wind, visibility, weather, cloud, temperature/dew point, altimeter, remarks"], "do": "decode today's METARs for YPDN (Darwin), VNKT (Kathmandu) and VNPR (Pokhara) on aviationweather.gov.", "ext": "", "extOnly": false}, {"n": 86, "title": "Pilot reports and TAFs", "pages": "pp 13-8 to 13-10", "read": ["Pilot Weather Reports (PIREPs)", "Aviation Forecasts", "Terminal Aerodrome Forecasts (TAF)"], "learn": ["the PIREP format", "TAF change groups FM, TEMPO, BECMG and PROB"], "do": "decode today's YPDN TAF and decide whether each period is VFR.", "ext": "", "extOnly": false}, {"n": 87, "title": "Area forecasts, AIRMETs and SIGMETs", "pages": "pp 13-10 to 13-13", "read": ["Area Forecasts (FA)", "Inflight Weather Advisories", "AIRMET", "SIGMET", "Convective SIGMET (WST)"], "learn": ["AIRMET Sierra (IFR/mountain obscuration), Tango (turbulence), Zulu (icing)", "what makes a SIGMET or convective SIGMET"], "do": "open the Graphical Forecasts for Aviation (GFA) on aviationweather.gov, which replaced the text area forecast.", "ext": "", "extOnly": false}, {"n": 88, "title": "Winds and temperatures aloft", "pages": "pp 13-13 to 13-14", "read": ["Winds and Temperature Aloft Forecast (FB)"], "learn": ["how to decode an FB line, including the trick used for winds over 100 kt"], "do": "decode three lines and choose the best cruise altitude for a given direction.", "ext": "", "extOnly": false}, {"n": 89, "title": "Weather charts", "pages": "pp 13-14 to 13-16", "read": ["Weather Charts", "Surface Analysis Chart", "Weather Depiction Chart", "Significant Weather Prognostic Charts"], "learn": ["what each chart shows and the main symbols"], "do": "read today's surface analysis and low-level significant weather chart and summarise the weather in three sentences.", "ext": "", "extOnly": false}, {"n": 90, "title": "Weather radar and cockpit weather", "pages": "pp 13-16 to 13-24", "read": ["ATC Radar Weather Displays", "Weather Avoidance Assistance", "EFD/MFD Weather", "Weather Products Age and Expiration", "NEXRAD Abnormalities and Limitations", "AIRMET/SIGMET Display", "Graphical METARs", "Data Link Weather", "FIS-B", "Pilot Responsibility"], "learn": ["how ATC describes precipitation intensity", "why datalinked radar images can be several minutes old, and why that is dangerous around thunderstorms"], "do": "", "ext": "", "extOnly": false}, {"n": 91, "title": "Review day", "pages": "", "read": [], "learn": [], "do": "re-read notes S74–S90. Do a full weather briefing for a pretend Darwin → Katherine flight tomorrow (METAR, TAF, charts, go/no-go).", "ext": "", "extOnly": false}]}, {"id": "Phase 11", "title": "Airport operations (Ch 14)", "intro": "", "sessions": [{"n": 92, "title": "Types of airport and sources of airport information", "pages": "pp 14-1 to 14-5", "read": ["Airport Categories", "Types of Airports", "Towered Airport", "Nontowered Airport", "Sources for Airport Data", "Aeronautical Charts", "Chart Supplement U.S.", "NOTAM", "ATIS"], "learn": ["towered vs non-towered airports", "where to find runway lengths, frequencies and procedures", "what ATIS broadcasts"], "do": "find and decode the Chart Supplement entry for any US airport, then YPDN in Australia's ERSA.", "ext": "", "extOnly": false}, {"n": 93, "title": "Runway markings and hold-short lines", "pages": "pp 14-5 to 14-8", "read": ["Airport Markings and Signs", "Runway Markings and Signs", "Relocated Runway Threshold", "Displaced Threshold", "Runway Safety Area", "Runway Safety Area Boundary Sign", "Runway Holding Position Sign", "Runway Holding Position Marking"], "learn": ["relocated vs displaced threshold (what you may and may not use)", "the hold-short marking (solid lines on your side = stop)"], "do": "", "ext": "", "extOnly": false}, {"n": 94, "title": "Runway numbers, distance signs and LAHSO", "pages": "pp 14-8 to 14-11", "read": ["Runway Distance Remaining Signs", "Runway Designation Marking", "Land and Hold Short Operations (LAHSO)"], "learn": ["how runway numbers come from magnetic heading", "aiming point and touchdown zone markings", "what LAHSO is and when a pilot can refuse it"], "do": "draw a runway end with all its markings.", "ext": "", "extOnly": false}, {"n": 95, "title": "Taxiway markings and airport signs", "pages": "pp 14-11 to 14-16", "read": ["Taxiway Markings and Signs", "Enhanced Taxiway Centerline Markings", "Destination Signs", "ILS Critical Area holding position", "Taxiway/Taxiway Intersections", "Closed Runways and Taxiways", "Other Markings", "Airport Signs"], "learn": ["the six sign types by colour (mandatory, location, direction, destination, information, runway distance remaining)", "the ILS critical area", "the closed-runway \"X\""], "do": "", "ext": "", "extOnly": false}, {"n": 96, "title": "Airport lighting", "pages": "pp 14-15 to 14-20", "read": ["Airport Lighting", "Airport Beacon", "Approach Light Systems", "Visual Glideslope Indicators (VASI, other glidepath systems)", "Runway Lighting", "Control of Airport Lighting", "Taxiway Lights", "Obstruction Lights"], "learn": ["beacon colours", "how a VASI and a PAPI show you're on the glidepath (4-light PAPI: 2 white + 2 red = correct)", "runway edge, end and threshold lights", "pilot-controlled lighting"], "do": "", "ext": "", "extOnly": false}, {"n": 97, "title": "Traffic patterns", "pages": "pp 14-20 to 14-22", "read": ["Wind Direction Indicators", "Traffic Patterns", "Single Runway example", "Parallel Runways example"], "learn": ["the five legs of the pattern", "standard entry (45° to downwind)", "pattern altitude", "reading a windsock and segmented circle"], "do": "draw a left-hand pattern with all legs labelled.", "ext": "", "extOnly": false}, {"n": 98, "title": "Radio communication", "pages": "pp 14-21 to 14-24", "read": ["Radio Communications", "Radio License", "Radio Equipment", "Using Proper Radio Procedures", "Lost Communication Procedures"], "learn": ["the phonetic alphabet and number pronunciation", "the structure of a radio call (who you're calling, who you are, where you are, what you want)", "light gun signals for lost comms"], "do": "", "ext": "", "extOnly": false}, {"n": 99, "title": "Radar, transponders and ADS-B", "pages": "pp 14-24 to 14-26", "read": ["Air Traffic Control (ATC) Services", "Primary Radar", "ATC Radar Beacon System", "Transponder", "ADS-B", "Radar Traffic Advisories"], "learn": ["primary vs secondary radar", "transponder modes A, C and S", "squawk codes 7500, 7600, 7700", "what ADS-B Out and In do"], "do": "", "ext": "pull ADS-B tracks from the OpenSky Network and plot one approach.", "extOnly": false}, {"n": 100, "title": "Wake turbulence and avoiding collisions", "pages": "pp 14-26 to 14-31", "read": ["Wake Turbulence", "Vortex Generation", "Vortex Behavior", "Vortex Avoidance Procedures", "Collision Avoidance", "Clearing Procedures", "Scanning Techniques", "Best Practices to See and Avoid", "Pilot Deviations"], "learn": ["wake avoidance on runways", "clearing turns", "the scanning technique (short stops on each 10° sector)", "why an aircraft on a collision course appears not to move"], "do": "", "ext": "", "extOnly": false}, {"n": 101, "title": "Runway incursions and ATC instructions", "pages": "pp 14-31 to 14-38", "read": ["Runway Incursion Avoidance", "Causal Factors", "Runway Confusion", "ATC Instructions (Hold Short, Explicit Runway Crossing, Line Up and Wait, Runway Shortened)", "Pre-Landing, Landing, and After-Landing", "EMAS"], "learn": ["what a runway incursion is and its main causes", "that you must read back every hold-short instruction", "what an EMAS arrester bed does"], "do": "read a summary of the 1977 Tenerife disaster and list the communication failures.", "ext": "", "extOnly": false}]}, {"id": "Phase 12", "title": "Airspace (Ch 15)", "intro": "", "sessions": [{"n": 102, "title": "Controlled airspace: Classes A to E", "pages": "pp 15-1 to 15-3", "read": ["Controlled Airspace", "Class A", "Class B", "Class C", "Class D", "Class E"], "learn": ["where each class is (altitudes, around which airports)", "what you need to enter each (clearance, radio contact, transponder)"], "do": "draw the side profiles of Class B, C and D.", "ext": "", "extOnly": false}, {"n": 103, "title": "Uncontrolled and special use airspace", "pages": "pp 15-3 to 15-5", "read": ["Uncontrolled Airspace", "Class G", "Special Use Airspace", "Prohibited", "Restricted", "Warning", "Military Operation Areas", "Alert Areas", "Controlled Firing Areas"], "learn": ["what Class G is", "each special use area and whether you may fly through it"], "do": "", "ext": "", "extOnly": false}, {"n": 104, "title": "Other airspace areas", "pages": "pp 15-6 to 15-7", "read": ["Other Airspace Areas", "Local Airport Advisory", "Military Training Routes", "Temporary Flight Restrictions", "Published VFR Routes", "TRSAs", "National Security Areas"], "learn": ["what each area is", "how to check for TFRs before a flight"], "do": "", "ext": "", "extOnly": false}, {"n": 105, "title": "VFR weather minimums", "pages": "pp 15-7 to 15-9", "read": ["Air Traffic Control and the National Airspace System", "Coordinating the Use of Airspace", "Operating in the Various Types of Airspace", "Basic VFR Weather Minimums"], "learn": ["the visibility and cloud-clearance minimums for each class"], "do": "build your own minimums table and memorise it.", "ext": "", "extOnly": false}, {"n": 106, "title": "Airspace rules and equipment requirements", "pages": "pp 15-9 to 15-11", "read": ["Operating Rules and Pilot/Equipment Requirements", "Ultralight Vehicles", "Unmanned Free Balloons", "Unmanned Aircraft Systems", "Parachute Jumps"], "learn": ["the pilot certificate and equipment needed for each class", "how drones and balloons fit into the airspace"], "do": "compare with ICAO airspace classes as used in Australia and Nepal.", "ext": "", "extOnly": false}]}, {"id": "Phase 13", "title": "Navigation (Ch 16)", "intro": "", "sessions": [{"n": 107, "title": "Aeronautical charts", "pages": "pp 16-1 to 16-3", "read": ["Aeronautical Charts", "Sectional Charts", "VFR Terminal Area Charts", "World Aeronautical Charts"], "learn": ["what a sectional chart shows and its scale", "how to read the legend"], "do": "download a free sectional from faa.gov and identify 15 symbols (airports, airspace, obstacles, VORs, maximum elevation figures).", "ext": "", "extOnly": false}, {"n": 108, "title": "Latitude, longitude and time", "pages": "pp 16-3 to 16-5", "read": ["Latitude and Longitude (Meridians and Parallels)", "Time Zones"], "learn": ["how to read a position in degrees and minutes", "why aviation uses UTC (Zulu time)"], "do": "convert a Darwin local time to UTC and to Nepal time.", "ext": "", "extOnly": false}, {"n": 109, "title": "True, magnetic and compass direction", "pages": "pp 16-5 to 16-10", "read": ["Measurement of Direction", "Variation", "Magnetic Variation", "Magnetic Deviation", "Deviation"], "learn": ["true course vs magnetic course vs compass heading", "variation (Earth's magnetic field) vs deviation (the aircraft's own magnetism)", "TVMDC and \"east is least, west is best\""], "do": "work three true-to-compass conversions.", "ext": "", "extOnly": false}, {"n": 110, "title": "Wind effect and basic flight calculations", "pages": "pp 16-10 to 16-12", "read": ["Effect of Wind", "Basic Calculations", "Converting Minutes to Hours", "Time, Distance and Groundspeed formulas", "Converting Knots to MPH", "Fuel Consumption"], "learn": ["how wind causes drift", "T = D/GS, D = GS × T, GS = D/T", "fuel = burn rate × time"], "do": "five practice problems.", "ext": "", "extOnly": false}, {"n": 111, "title": "Flight computer, plotter, pilotage and dead reckoning", "pages": "pp 16-12 to 16-13", "read": ["Flight Computers", "Plotter", "Pilotage", "Dead Reckoning"], "learn": ["what the E6B and plotter are for", "pilotage (navigating by landmarks) vs dead reckoning (by heading, speed and time)"], "do": "use an online E6B to do one TAS and one fuel problem.", "ext": "", "extOnly": false}, {"n": 112, "title": "The wind triangle", "pages": "pp 16-13 to 16-17", "read": ["Wind Triangle or Vector Analysis", "Steps 1 to 4"], "learn": ["how to find heading and groundspeed from course, TAS and wind"], "do": "", "ext": "solve it in Python (wind correction angle = asin(wind speed · sin(wind angle) / TAS)) and check against the book's example.", "extOnly": false}, {"n": 113, "title": "Planning a cross-country flight", "pages": "pp 16-17 to 16-22", "read": ["Flight Planning", "Assembling Necessary Material", "Weather Check", "Use of Chart Supplement", "AFM/POH", "Charting the Course", "Steps in Charting the Course", "Filing a VFR Flight Plan"], "learn": ["every step of planning a VFR cross-country and what goes in a flight plan"], "do": "plan a mock flight on the sectional with checkpoints, headings, times and fuel on a nav log.", "ext": "", "extOnly": false}, {"n": 114, "title": "VOR and its cockpit displays", "pages": "pp 16-22 to 16-24", "read": ["Ground-Based Navigation", "VOR", "Using the VOR", "Course Deviation Indicator", "Horizontal Situation Indicator", "Radio Magnetic Indicator"], "learn": ["what a radial is", "how to identify a VOR (Morse code)", "how to read a CDI (TO/FROM flag, needle deflection), an HSI and an RMI"], "do": "", "ext": "", "extOnly": false}, {"n": 115, "title": "Tracking, position checks and intercepts", "pages": "pp 16-25 to 16-27", "read": ["Tracking With VOR", "Tips on Using the VOR", "Time and Distance Check From a Station (RMI and CDI)", "Course Intercept", "Rate of Intercept", "Angle of Intercept"], "learn": ["how to track a radial with wind", "how to intercept a course"], "do": "practise on a free online VOR simulator until TO/FROM is automatic.", "ext": "", "extOnly": false}, {"n": 116, "title": "DME, RNAV and ADF", "pages": "pp 16-27 to 16-30", "read": ["Distance Measuring Equipment", "VOR/DME RNAV", "Automatic Direction Finder"], "learn": ["how DME measures distance and its slant-range error", "what RNAV does", "how an ADF points to an NDB"], "do": "", "ext": "", "extOnly": false}, {"n": 117, "title": "GPS", "pages": "pp 16-30 to 16-33", "read": ["Global Positioning System", "Selective Availability", "VFR Use of GPS", "RAIM Capability", "Tips for Using GPS for VFR Operations", "VFR Waypoints"], "learn": ["how GPS fixes a position", "what RAIM checks", "the risks of relying on GPS alone"], "do": "", "ext": "GPS solves for x, y, z and clock error from four satellites; RAIM needs five to detect a bad one. Write a small least-squares position solver.", "extOnly": false}, {"n": 118, "title": "When lost or diverting", "pages": "pp 16-33 to 16-35", "read": ["Lost Procedures", "Flight Diversion"], "learn": ["the steps when lost (climb, communicate, confess, comply, conserve)", "how to divert quickly to an alternate"], "do": "", "ext": "", "extOnly": false}, {"n": 119, "title": "Review day", "pages": "", "read": [], "learn": [], "do": "re-read notes S92–S118. Re-plan your S113 flight with a different wind and recompute everything.", "ext": "", "extOnly": false}]}, {"id": "Phase 14", "title": "Aeromedical factors (Ch 17)", "intro": "", "sessions": [{"n": 120, "title": "Medical certificates and hypoxia", "pages": "pp 17-1 to 17-4", "read": ["Obtaining a Medical Certificate", "Health and Physiological Factors", "Hypoxia", "Hypoxic, Hypemic, Stagnant and Histotoxic Hypoxia", "Symptoms of Hypoxia", "Treatment of Hypoxia"], "learn": ["the four types of hypoxia and a cause of each", "early symptoms (and that you often don't notice them yourself)", "time of useful consciousness"], "do": "", "ext": "compute the partial pressure of oxygen at sea level, 10,000 ft and 25,000 ft using your ISA function.", "extOnly": false}, {"n": 121, "title": "Hyperventilation, ears and sinuses", "pages": "pp 17-4 to 17-6", "read": ["Hyperventilation", "Middle Ear and Sinus Problems"], "learn": ["how hyperventilation differs from hypoxia and how to treat it", "why ear and sinus blocks happen in descent and why you shouldn't fly with a cold"], "do": "", "ext": "", "extOnly": false}, {"n": 122, "title": "Spatial disorientation", "pages": "pp 17-6 to 17-10", "read": ["Spatial Disorientation and Illusions", "Vestibular Illusions", "Visual Illusions", "Postural Considerations", "Demonstration of Spatial Disorientation", "Coping with Spatial Disorientation"], "learn": ["how the inner ear senses motion and why it fails without visual references", "the leans, graveyard spiral, Coriolis illusion, somatogravic illusion", "the cure is trusting the instruments"], "do": "", "ext": "", "extOnly": false}, {"n": 123, "title": "Optical illusions on approach and landing", "pages": "pp 17-10 to 17-12", "read": ["Optical Illusions", "Runway Width", "Runway and Terrain Slopes", "Featureless Terrain", "Water Refraction", "Haze", "Fog", "Ground Lighting", "How to Prevent Landing Errors"], "learn": ["each illusion and whether it makes you fly too high or too low. These are core causes of CFIT accidents"], "do": "", "ext": "", "extOnly": false}, {"n": 124, "title": "Motion sickness, CO poisoning, stress and fatigue", "pages": "pp 17-12 to 17-13", "read": ["Motion Sickness", "Carbon Monoxide Poisoning", "Stress", "Fatigue"], "learn": ["sources and symptoms of CO poisoning", "acute vs chronic stress and fatigue and how each degrades performance"], "do": "", "ext": "", "extOnly": false}, {"n": 125, "title": "Chemicals, dehydration, alcohol, drugs and decompression sickness", "pages": "pp 17-13 to 17-19", "read": ["Exposure to Chemicals", "Dehydration and Heatstroke", "Alcohol", "Drugs", "Altitude-Induced Decompression Sickness", "DCS After Scuba Diving"], "learn": ["IMSAFE (Illness, Medication, Stress, Alcohol, Fatigue, Emotion)", "the 8-hour and 0.04% alcohol rules", "waiting times before flying after scuba diving"], "do": "", "ext": "", "extOnly": false}, {"n": 126, "title": "How the eye works in flight", "pages": "pp 17-19 to 17-22", "read": ["Vision in Flight", "Vision Types (photopic, mesopic, scotopic)", "Central Blind Spot", "Empty-Field Myopia"], "learn": ["cones (day, colour) vs rods (night, motion)", "the blind spot", "why the eye relaxes to a short focus when there's nothing to look at"], "do": "", "ext": "", "extOnly": false}, {"n": 127, "title": "Night vision", "pages": "pp 17-22 to 17-25", "read": ["Night Vision", "Night Blind Spot", "Dark Adaptation", "Scanning Techniques", "Night Vision Protection", "Self-Imposed Stress"], "learn": ["why you look slightly to the side of an object at night", "why dark adaptation takes about 30 minutes and how bright light ruins it"], "do": "", "ext": "", "extOnly": false}, {"n": 128, "title": "Night illusions and vision technology", "pages": "pp 17-25 to 17-29", "read": ["Distance Estimation and Depth Perception", "Binocular Cues", "Night Vision Illusions (autokinesis, false horizon, reversible perspective, size-distance, fascination, flicker vertigo)", "Night Landing Illusions", "Enhanced Night Vision Systems", "Synthetic Vision System", "Enhanced Flight Vision System"], "learn": ["each night illusion", "the black-hole approach", "how synthetic vision and enhanced vision reduce CFIT risk"], "do": "", "ext": "", "extOnly": false}]}, {"id": "Phase 15", "title": "Aeronautical decision-making (Ch 2)", "intro": "Placed last so you can read it with the technical knowledge to judge real decisions. Move it earlier if you prefer.", "sessions": [{"n": 129, "title": "What ADM is; CRM and single-pilot resource management", "pages": "pp 2-1 to 2-4", "read": ["Introduction", "History of ADM", "Risk Management", "Crew Resource Management (CRM) and Single-Pilot Resource Management"], "learn": ["why ADM training was created (most accidents involve pilot decisions)", "the idea of CRM and how it applies to one pilot"], "do": "", "ext": "", "extOnly": false}, {"n": 130, "title": "Hazardous attitudes and risk", "pages": "pp 2-4 to 2-8", "read": ["Hazard and Risk", "Hazardous Attitudes and Antidotes", "Risk", "Assessing Risk", "Mitigating Risk"], "learn": ["the five hazardous attitudes (anti-authority, impulsivity, invulnerability, macho, resignation) and the antidote for each", "hazard vs risk", "likelihood × severity"], "do": "", "ext": "build a 5 × 5 risk matrix (same structure as ICAO safety management) and score three hazards.", "extOnly": false}, {"n": 131, "title": "PAVE checklist and human factors", "pages": "pp 2-8 to 2-12", "read": ["The PAVE Checklist (Pilot, Aircraft, EnVironment, External Pressures)", "Human Factors", "Human Behavior"], "learn": ["how PAVE finds hazards before a flight", "why external pressures (\"get-there-itis\") cause so many accidents"], "do": "", "ext": "", "extOnly": false}, {"n": 132, "title": "Decision-making models", "pages": "pp 2-12 to 2-17", "read": ["The Decision-Making Process", "SRM", "The 5 Ps Check (Plan, Plane, Pilot, Passengers, Programming)", "Perceive, Process, Perform (3P)", "PAVE, CARE and TEAM Checklists"], "learn": ["how the 5 Ps and the 3P model are used during flight", "what CARE and TEAM add"], "do": "", "ext": "", "extOnly": false}, {"n": 133, "title": "DECIDE and decisions under pressure", "pages": "pp 2-18 to 2-23", "read": ["The DECIDE Model (Detect, Estimate, Choose, Identify, Do, Evaluate)", "Decision-Making in a Dynamic Environment", "Automatic Decision-Making", "Operational Pitfalls", "Stress Management", "Use of Resources"], "learn": ["each DECIDE step", "the operational pitfalls (scud running, continuing VFR into cloud, ignoring fuel reserves)"], "do": "apply DECIDE to a rough-running engine over mountains.", "ext": "", "extOnly": false}, {"n": 134, "title": "Situational awareness", "pages": "pp 2-24 to 2-25", "read": ["Situational Awareness", "Obstacles to Maintaining Situational Awareness", "Workload Management", "Managing Risks"], "learn": ["what situational awareness is", "how high workload and fatigue destroy it", "how to plan workload ahead of busy phases"], "do": "", "ext": "", "extOnly": false}, {"n": 135, "title": "Automation in the cockpit", "pages": "pp 2-25 to 2-32", "read": ["Automation", "Results of the Study", "Equipment Use", "Autopilot Systems", "Familiarity", "Respect for Onboard Systems", "Getting Beyond Rote Workmanship", "Understand the Platform", "Managing Aircraft Automation", "Information Management", "Enhanced Situational Awareness", "Automation Management", "Risk Management"], "learn": ["automation complacency", "mode confusion", "why pilots must know what the automation is doing at all times"], "do": "read a summary of Asiana 214 (San Francisco, 2013).", "ext": "", "extOnly": false}, {"n": 136, "title": "Review day", "pages": "", "read": [], "learn": [], "do": "re-read notes S120–S135. Pick one Nepal accident report and classify its causes using Chapters 2 and 17.", "ext": "", "extOnly": false}]}, {"id": "Phase 16", "title": "Consolidation and bridge to an MSc", "intro": "", "sessions": [{"n": 137, "title": "Glossary check, A to L", "pages": "PHAK Glossary", "read": [], "learn": [], "do": "cover each definition and explain 25 terms out loud. Note any you can't, and look up the session that covers them.", "ext": "", "extOnly": false}, {"n": 138, "title": "Glossary check, M to Z", "pages": "PHAK Glossary", "read": [], "learn": [], "do": "same method.", "ext": "", "extOnly": false}, {"n": 139, "title": "Practice test: aerodynamics, systems and instruments", "pages": "", "read": [], "learn": [], "do": "30 questions from the FAA's free sample Private Pilot (PAR) test. For every wrong answer, revisit the session that covers it.", "ext": "", "extOnly": false}, {"n": 140, "title": "Practice test: performance, weather and navigation", "pages": "", "read": [], "learn": [], "do": "30 questions, same method.", "ext": "", "extOnly": false}, {"n": 141, "title": "Practice test: regulations, airspace, airport operations and human factors", "pages": "", "read": [], "learn": [], "do": "30 questions, same method.", "ext": "", "extOnly": false}, {"n": 142, "title": "ICAO and the international rule system", "pages": "not in PHAK", "read": [], "learn": ["the Chicago Convention", "what ICAO Annexes are", "the ones most used in safety work (1 Licensing, 2 Rules of the Air, 6 Operations, 11 Air Traffic Services, 13 Accident Investigation, 14 Aerodromes, 19 Safety Management)"], "do": "map how the FAA, CASA and CAAN each implement them.", "ext": "", "extOnly": false}, {"n": 143, "title": "Safety management and accident investigation", "pages": "not in PHAK", "read": [], "learn": ["what an accident investigation is for (prevention, not blame)", "the basics of a Safety Management System (policy, risk management, assurance, promotion)", "the HFACS framework and the Swiss cheese model"], "do": "connect these to the risk matrix from S130.", "ext": "", "extOnly": false}]}];
+</script>
+<script>
+(() => {
+"use strict";
+/* ---------- Data ---------- */
+const COLORS = [
+  ["#0a84ff","#0051d5"],["#32ade6","#0077b6"],["#5e5ce6","#3634a3"],["#bf5af2","#8944ab"],["#ff375f","#c21f45"],
+  ["#ff9f0a","#e06900"],["#ffcc00","#d49d00"],["#30d158","#1a9c3c"],["#00c7be","#00897f"],["#64d2ff","#1c8fd1"],
+  ["#5e5ce6","#2f2d9e"],["#ff6482","#d0325a"],["#ac8e68","#7d6243"],["#0a84ff","#3634a3"],["#ff453a","#b3261e"],
+  ["#bf5af2","#5e5ce6"],["#ffd60a","#ff9f0a"]
+];
+const BADGES = ["Rulebook","Air Mass","Aerodynamicist","Airframer","Powerplant","Panel Scan","Paperwork Pro","Balance Master",
+  "Performance Pro","Sky Reader","Weather Briefer","Ramp Ready","Airspace Ace","Navigator","Flight Surgeon","Decision Maker","MSc Ready"];
+const RANKS = [[0,"Ground School Cadet"],[600,"Student Pilot"],[1800,"First Solo"],[4000,"Private Pilot"],[7000,"Instrument Rated"],
+  [10500,"Commercial Pilot"],[14500,"Flight Instructor"],[19000,"Airline Captain"]];
+const XP = {read:5, learn:10, do:15, ext:25, notes:10, done:50};
+
+const SESS = []; const BYN = {};
+PHASES.forEach((p, pi) => {
+  const m = p.title.match(/^(.*?)\s*\((.+)\)$/);
+  p.name = m ? m[1] : p.title; p.ch = m ? m[2] : "";
+  p.pi = pi; p.c = COLORS[pi % COLORS.length];
+  p.sessions.forEach(s => { s.pi = pi; s.review = /^Review day/.test(s.title); SESS.push(s); BYN[s.n] = s; });
+});
+const N = SESS.length;
+
+/* ---------- State + persistence ---------- */
+const LS = "phak-flightpath-v1";
+const blank = () => ({v:1, read:{}, learn:{}, task:{}, notes:{}, done:{}, goal:1, updated:0});
+let S = blank();
+try { const raw = localStorage.getItem(LS); if (raw) S = Object.assign(blank(), JSON.parse(raw)); } catch(e) {}
+/* Cloud sync for hosting outside Claude (e.g. Vercel). Values come from config.js, which the build writes
+   from Vercel environment variables, so no keys live in the repo. Without config.js and the page saves to this browser only (or to your Claude account when opened on Claude). */
+const SUPABASE_URL = (window.PHAK_CONFIG || {}).supabaseUrl || "";
+const SUPABASE_ANON_KEY = (window.PHAK_CONFIG || {}).supabaseAnonKey || "";
+
+let syncMode = "local", remote = null, writing = false, pendingWrite = false, writeTimer = null;
+let sb = null, sbUser = null, authMsg = "";
+
+function save(){
+  S.updated = Date.now();
+  try { localStorage.setItem(LS, JSON.stringify(S)); } catch(e) {}
+  if (remote){ clearTimeout(writeTimer); writeTimer = setTimeout(flush, 900); }
+}
+async function flush(){
+  if (!remote) return;
+  if (writing){ pendingWrite = true; return; }
+  writing = true;
+  try { await remote.save(JSON.parse(JSON.stringify(S))); syncMode = remote.kind; }
+  catch(e){ syncMode = "error"; }
+  writing = false; renderSync();
+  if (pendingWrite){ pendingWrite = false; flush(); }
+}
+function mergeRemote(r){
+  if (!r || typeof r !== "object") return false;
+  if ((r.updated || 0) <= (S.updated || 0)) return false;
+  S = Object.assign(blank(), r);
+  try { localStorage.setItem(LS, JSON.stringify(S)); } catch(e) {}
+  return true;
+}
+
+/* Supabase: email magic-link login, one row per user in table "progress" */
+function loadScript(src){ return new Promise((ok, bad) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
+async function initSupabase(){
+  try {
+    await loadScript("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js");
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {auth:{flowType:"pkce", persistSession:true, detectSessionInUrl:true}});
+    const onUser = async (user) => {
+      sbUser = user || null;
+      if (!sbUser){ remote = null; syncMode = "local"; renderSync(); return; }
+      remote = {kind: "supabase", save: async (state) => {
+        const {error} = await sb.from("progress").upsert({user_id: sbUser.id, state, updated_at: new Date().toISOString()});
+        if (error) throw error;
+      }};
+      const {data, error} = await sb.from("progress").select("state").eq("user_id", sbUser.id).maybeSingle();
+      if (error){ syncMode = "error"; renderSync(); return; }
+      if (data && mergeRemote(data.state)) renderAll();
+      else if (S.updated && (!data || (S.updated > ((data.state || {}).updated || 0)))) flush();
+      syncMode = "supabase"; renderSync();
+      if (/[?&]code=/.test(location.search)) history.replaceState(null, "", location.pathname + location.hash);
+    };
+    const {data:{session}} = await sb.auth.getSession();
+    onUser(session && session.user);
+    sb.auth.onAuthStateChange((ev, session) => { if (ev === "SIGNED_IN" || ev === "SIGNED_OUT") onUser(session && session.user); });
+  } catch(e){ syncMode = "error"; renderSync(); }
+}
+async function signIn(email){
+  if (!sb) return;
+  authMsg = "Sending…"; renderSync();
+  const {error} = await sb.auth.signInWithOtp({email, options:{emailRedirectTo: location.origin + location.pathname}});
+  authMsg = error ? "Couldn't send the link: " + error.message : "Check your email and tap the sign-in link. Use the same browser.";
+  renderSync();
+}
+async function signOut(){ if (sb) await sb.auth.signOut(); }
+
+/* Claude-hosted fallback: per-user document in the artifact's store */
+async function initClaude(){
+  try {
+    if (!window.claude || !claude.use) return;
+    const [db, user] = await Promise.all([claude.use("db"), claude.use("user")]);
+    if (!db || !user) return;
+    const uid = await user.id(); if (!uid) return;
+    const ref = db.doc("data/users/" + uid + "/progress");
+    remote = {kind: "cloud", save: (state) => ref.set(state)};
+    let first = true;
+    ref.onSnapshot(snap => {
+      if (snap.metadata && snap.metadata.hasPendingWrites) return;
+      if (snap.exists){
+        if (mergeRemote(snap.data())) renderAll();
+        else if (first && (S.updated || 0) > ((snap.data() || {}).updated || 0)) flush();
+      } else if (first && S.updated){ flush(); }
+      syncMode = "cloud"; first = false; renderSync();
+    }, () => { remote = null; syncMode = "local"; renderSync(); });
+  } catch(e) {}
+}
+if (SUPABASE_URL && SUPABASE_ANON_KEY) initSupabase(); else initClaude();
+
+/* ---------- Derived values ---------- */
+const today = () => dkey(new Date());
+function dkey(d){ return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+const isDone = n => !!S.done[n];
+const arr = (o,n) => o[n] || [];
+function sessXP(s){
+  const n = s.n, t = S.task[n] || {};
+  return arr(S.read,n).length*XP.read + arr(S.learn,n).length*XP.learn + (t.do?XP.do:0) + (t.ext?XP.ext:0)
+    + ((S.notes[n]||"").trim().length >= 20 ? XP.notes : 0) + (isDone(n) ? XP.done : 0);
+}
+const totalXP = () => SESS.reduce((a,s) => a + sessXP(s), 0);
+const doneCount = () => SESS.filter(s => isDone(s.n)).length;
+function nextSession(){ return SESS.find(s => !isDone(s.n)) || null; }
+function dayCounts(){ const c = {}; Object.values(S.done).forEach(d => { c[d] = (c[d]||0) + 1; }); return c; }
+function streak(){
+  const c = dayCounts(); let d = new Date(), k = 0;
+  if (!c[dkey(d)]) d.setDate(d.getDate()-1);
+  while (c[dkey(d)]){ k++; d.setDate(d.getDate()-1); }
+  return k;
+}
+function rankOf(xp){
+  let i = 0; while (i+1 < RANKS.length && xp >= RANKS[i+1][0]) i++;
+  return {i, name:RANKS[i][1], lo:RANKS[i][0], hi: RANKS[i+1] ? RANKS[i+1][0] : null, next: RANKS[i+1] ? RANKS[i+1][1] : null};
+}
+const phaseDone = p => p.sessions.every(s => isDone(s.n));
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cap = t => t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+const pad = n => "S" + String(n).padStart(2,"0");
+function estMin(s){ return s.review ? 35 : Math.min(45, 15 + s.read.length*3 + s.learn.length*3 + (s.ext?8:0)); }
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/* ---------- Spring (Apple: damping ratio + response) ---------- */
+function spring({from, to, velocity = 0, damping = 1, response = 0.4, onUpdate, onDone}){
+  if (reduce){ onUpdate(to); onDone && onDone(); return {stop(){}}; }
+  const k = Math.pow(2*Math.PI/response, 2), c = 4*Math.PI*damping/response;
+  let x = from, v = velocity, last = performance.now(), raf, stopped = false;
+  const step = now => {
+    if (stopped) return;
+    let dt = Math.min(0.064, (now - last)/1000); last = now;
+    const sub = 4; dt /= sub;
+    for (let i=0;i<sub;i++){ const a = -k*(x-to) - c*v; v += a*dt; x += v*dt; }
+    onUpdate(x);
+    if (Math.abs(v) < 2 && Math.abs(x-to) < 0.3){ onUpdate(to); onDone && onDone(); return; }
+    raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+  return {stop(){ stopped = true; cancelAnimationFrame(raf); }, get value(){ return x; }, get velocity(){ return v; }};
+}
+
+/* ---------- Header chips ---------- */
+let shownXP = 0, xpAnim = null;
+function renderChips(){
+  document.getElementById("streakChip").textContent = streak();
+  const target = totalXP();
+  if (xpAnim) xpAnim.stop();
+  xpAnim = spring({from: shownXP, to: target, response: .8, onUpdate: v => { shownXP = v; document.getElementById("xpChip").textContent = Math.round(v).toLocaleString(); }});
+}
+
+/* ---------- Path view ---------- */
+function ringSVG(p, c1, c2, size=76, w=9, id){
+  const r = (size - w)/2, C = 2*Math.PI*r, off = C*(1 - Math.max(0, Math.min(1, p)));
+  const gid = "g" + (id || Math.random().toString(36).slice(2));
+  return `<svg viewBox="0 0 ${size} ${size}"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>
+  <circle class="track" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke-width="${w}"/>
+  <circle class="bar" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="url(#${gid})" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/></svg>`;
+}
+function renderHero(){
+  const nx = nextSession(), d = doneCount(), todayN = dayCounts()[today()] || 0, goal = S.goal || 1;
+  const h = document.getElementById("hero");
+  if (!nx){
+    h.innerHTML = `<div class="eyebrow">Course complete</div><h2>All 143 sessions logged. You've flown the whole PHAK.</h2>
+      <div class="meta">Open the Logbook to see your badges.</div>`;
+    return;
+  }
+  const p = PHASES[nx.pi];
+  h.style.setProperty("--c1", p.c[0]); h.style.setProperty("--c2", p.c[1]);
+  h.innerHTML = `
+    <div class="eyebrow">${todayN >= goal ? "Goal met today · keep going?" : "Next session"}</div>
+    <h2>${pad(nx.n)} · ${esc(nx.title)}</h2>
+    <div class="meta">${esc(p.name)}${nx.pages ? " · " + esc(nx.pages) : ""} · about ${estMin(nx)} min</div>
+    <div class="hero-row">
+      <div class="ring">${ringSVG(todayN/goal, p.c[0], p.c[1], 76, 9, "hero")}<div class="lbl">${todayN}/${goal}<small>today</small></div></div>
+      <button class="btn" style="flex:1" data-open="${nx.n}">${arr(S.read,nx.n).length||arr(S.learn,nx.n).length ? "Continue session" : "Start session"}</button>
+    </div>
+    <div class="stats3">
+      <div class="stat"><b>${d}</b><span>of ${N} done</span></div>
+      <div class="stat"><b style="color:var(--flame)">${streak()}</b><span>day streak</span></div>
+      <div class="stat"><b>${Math.round(d/N*100)}%</b><span>of the PHAK</span></div>
+    </div>`;
+}
+function renderRoute(){
+  const nx = nextSession(); const out = [];
+  PHASES.forEach(p => {
+    const dn = p.sessions.filter(s => isDone(s.n)).length;
+    out.push(`<div class="unit" style="--c1:${p.c[0]};--c2:${p.c[1]}">
+      <div class="k">${esc(p.id)} · ${dn}/${p.sessions.length}</div>
+      <h3>${esc(p.name)}</h3><div class="ch">${esc(p.ch)}</div>
+      ${p.intro ? `<div class="note">${esc(p.intro)}</div>` : ""}
+      <div class="bar"><i style="width:${dn/p.sessions.length*100}%"></i></div></div>`);
+    out.push(`<div class="route" style="--c1:${p.c[0]};--c2:${p.c[1]}" data-pi="${p.pi}">`);
+    p.sessions.forEach((s, i) => {
+      const x = Math.round(Math.sin(i*0.85) * 72);
+      const cls = isDone(s.n) ? "done" : (nx && nx.n === s.n ? "cur" : "");
+      const inner = isDone(s.n) ? `<svg><use href="#i-check"/></svg>` : s.review ? `<svg><use href="#i-star"/></svg>` : s.n;
+      const side = x > 0 ? "l" : "r";
+      out.push(`<div class="stop" data-x="${x}">
+        <div class="lab ${side}"><b>${esc(s.title)}</b>${pad(s.n)}${s.pages ? " · " + esc(s.pages) : ""}</div>
+        <button class="node ${cls}${s.review ? " review" : ""}" style="transform:translateX(${x}px)" data-open="${s.n}" aria-label="${pad(s.n)} ${esc(s.title)}${isDone(s.n) ? ", completed" : ""}">
+          ${cls === "cur" ? `<span class="bubble">${arr(S.read,s.n).length||arr(S.learn,s.n).length ? "CONTINUE" : "START"}</span>` : ""}${inner}</button>
+      </div>`);
+    });
+    out.push(`</div>`);
+  });
+  document.getElementById("route").innerHTML = out.join("");
+  // move label to the side away from the node
+  document.querySelectorAll(".stop").forEach(st => {
+    const x = +st.dataset.x, lab = st.querySelector(".lab");
+    if (x > 0){ lab.style.right = `calc(50% - ${x}px + 50px)`; lab.style.left = "auto"; lab.className = "lab l"; }
+    else { lab.style.left = `calc(50% + ${x}px + 50px)`; lab.style.right = "auto"; lab.className = "lab r"; }
+  });
+  drawTrails();
+}
+function drawTrails(){
+  document.querySelectorAll(".route").forEach(r => {
+    r.querySelector(".trail")?.remove();
+    const W = r.clientWidth; const stops = [...r.querySelectorAll(".stop")];
+    if (stops.length < 2) return;
+    let d = "";
+    stops.forEach((st, i) => {
+      const x = W/2 + (+st.dataset.x), y = st.offsetTop + 31;
+      if (!i) d += `M${x} ${y}`; else { const py = stops[i-1].offsetTop + 31, px = W/2 + (+stops[i-1].dataset.x); d += ` C${px} ${(py+y)/2} ${x} ${(py+y)/2} ${x} ${y}`; }
+    });
+    r.insertAdjacentHTML("afterbegin", `<svg class="trail" aria-hidden="true"><path d="${d}"/></svg>`);
+  });
+}
+
+/* ---------- Checklist ---------- */
+let filter = "all", query = "";
+function renderChecklist(){
+  const out = []; const q = query.trim().toLowerCase(); let shown = 0;
+  PHASES.forEach(p => {
+    const rows = p.sessions.filter(s => (filter === "all" || (filter === "done") === isDone(s.n)) &&
+      (!q || (s.title + " " + s.read.join(" ") + " " + s.learn.join(" ") + " " + pad(s.n)).toLowerCase().includes(q)));
+    if (!rows.length) return; shown += rows.length;
+    const dn = p.sessions.filter(s => isDone(s.n)).length;
+    out.push(`<div class="group"><h4><span>${esc(p.id)} · ${esc(p.name)}</span><span>${dn}/${p.sessions.length}</span></h4><div class="list glass">`);
+    rows.forEach(s => out.push(`<button class="row${isDone(s.n) ? " done" : ""}" data-open="${s.n}" data-row="${s.n}">
+      <span class="chk"><svg><use href="#i-check"/></svg></span>
+      <span class="tx"><b>${esc(s.title)}</b><span>${s.pages ? esc(s.pages) : "Practice"}${isDone(s.n) ? " · done " + fmtDate(S.done[s.n]) : ""}</span></span>
+      <span class="num">${pad(s.n)}</span></button>`));
+    out.push(`</div></div>`);
+  });
+  document.getElementById("clist").innerHTML = shown ? out.join("") : `<div class="empty">No sessions match.</div>`;
+  document.getElementById("clSub").textContent = `${doneCount()} of ${N} complete. Sessions tick themselves when you press Complete session.`;
+}
+function fmtDate(k){ if (!k) return ""; const [y,m,d] = k.split("-").map(Number); return new Date(y,m-1,d).toLocaleDateString(undefined,{day:"numeric",month:"short"}); }
+
+/* ---------- Progress ---------- */
+function renderProgress(){
+  const xp = totalXP(), r = rankOf(xp), d = doneCount();
+  const pct = r.hi ? (xp - r.lo)/(r.hi - r.lo) : 1;
+  const c = dayCounts(), todayN = c[today()] || 0;
+  const cur = nextSession(); const cp = cur ? PHASES[cur.pi] : PHASES[PHASES.length-1];
+  const cpd = cp.sessions.filter(s => isDone(s.n)).length / cp.sessions.length;
+  // heatmap: 20 weeks ending this week
+  const cells = []; const end = new Date(); const start = new Date(end); start.setDate(end.getDate() - end.getDay() - 7*19);
+  for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate()+1)){
+    const k = dkey(dt), v = c[k] || 0;
+    cells.push(`<i class="${v>=3?"l3":v==2?"l2":v==1?"l1":""}${k===today()?" today":""}" title="${k}: ${v}"></i>`);
+  }
+  const daysActive = Object.keys(c).length;
+  const best = (() => { const ks = Object.keys(c).sort(); let b=0, run=0, prev=null; ks.forEach(k => { const t = new Date(k+"T00:00"); run = prev && (t - prev) === 864e5 ? run+1 : 1; b = Math.max(b, run); prev = t; }); return b; })();
+  document.getElementById("prog").innerHTML = `
+    <div class="card glass">
+      <div class="rank"><div class="wings"><svg><use href="#i-wings"/></svg></div>
+        <div><h3>${r.name}</h3><p>Rank ${r.i+1} of ${RANKS.length}${r.next ? ` · next: ${r.next}` : " · top rank"}</p></div></div>
+      <div class="xpbar"><i style="width:${pct*100}%"></i></div>
+      <div class="xpnote"><span>${xp.toLocaleString()} XP</span><span>${r.hi ? (r.hi - xp).toLocaleString() + " XP to go" : "Maxed out"}</span></div>
+    </div>
+    <div class="card glass rings3">
+      <div><div class="ring">${ringSVG(todayN/(S.goal||1),"#ff375f","#ff2d55",76,9,"r1")}<div class="lbl">${todayN}/${S.goal||1}</div></div><div class="cap">Today's goal</div></div>
+      <div><div class="ring">${ringSVG(cpd,cp.c[0],cp.c[1],76,9,"r2")}<div class="lbl">${Math.round(cpd*100)}%</div></div><div class="cap">${esc(cp.id)}</div></div>
+      <div><div class="ring">${ringSVG(d/N,"#30d158","#00c7be",76,9,"r3")}<div class="lbl">${Math.round(d/N*100)}%</div></div><div class="cap">Whole PHAK</div></div>
+    </div>
+    <div class="stats3" style="margin-top:0">
+      <div class="stat glass"><b style="color:var(--flame)">${streak()}</b><span>day streak</span></div>
+      <div class="stat glass"><b>${best}</b><span>best streak</span></div>
+      <div class="stat glass"><b>${daysActive}</b><span>days flown</span></div>
+    </div>
+    <h3 class="sec">Activity</h3>
+    <div class="card glass"><div class="heat">${cells.join("")}</div><div class="heatcap"><span>20 weeks ago</span><span>Today</span></div></div>
+    <h3 class="sec">Phase badges</h3>
+    <div class="card glass"><div class="badges">${PHASES.map(p => `<div class="badge${phaseDone(p) ? "" : " locked"}" style="--c1:${p.c[0]};--c2:${p.c[1]}">
+      <div class="medal">${p.pi}</div><b>${BADGES[p.pi]}</b><span>${phaseDone(p) ? "Earned" : p.sessions.filter(s=>isDone(s.n)).length + "/" + p.sessions.length}</span></div>`).join("")}</div></div>
+    <h3 class="sec">Settings</h3>
+    <div class="card glass settings">
+      <div class="rowx"><span>Daily goal (sessions)</span><span class="stepper"><button data-goal="-1" aria-label="Fewer">−</button><span>${S.goal||1}</span><button data-goal="1" aria-label="More">+</button></span></div>
+      <div class="rowx"><span>XP per session</span><span style="color:var(--ink-2);font-size:14px">waypoint 5 · explain 10 · task 15 · extension 25 · notes 10 · complete 50</span></div>
+    </div>
+    <div class="sync" id="sync"></div>`;
+  renderSync();
+}
+function renderSync(){
+  const el = document.getElementById("sync"); if (!el) return;
+  if (sb){
+    if (sbUser){
+      el.innerHTML = `<div class="card glass settings"><div class="rowx"><span>Signed in as <b>${esc(sbUser.email || "")}</b></span><button class="btn ghost" style="height:36px;font-size:15px" id="signOut">Sign out</button></div></div>
+        <div>${syncMode === "error" ? "Couldn't reach the database. Your progress is safe in this browser and will sync when it can." : "Progress and debrief notes sync to your account on every device."}</div>`;
+    } else {
+      el.innerHTML = `<div class="card glass settings"><div style="font-weight:600;margin-bottom:4px;color:var(--ink)">Sync across devices</div>
+        <div style="color:var(--ink-2);font-size:14px;margin-bottom:10px">Sign in with your email. Your ticks, XP and debrief notes then follow you to every device.</div>
+        <form id="signInForm" style="display:flex;gap:8px"><label class="sr" for="email">Email</label>
+        <input id="email" type="email" required placeholder="you@example.com" style="flex:1;min-width:0;height:44px;border:0;border-radius:12px;padding:0 12px;background:var(--fill);color:var(--ink);font:inherit;font-size:16px">
+        <button class="btn" style="height:44px;font-size:15px" type="submit">Send link</button></form>
+        ${authMsg ? `<div style="margin-top:8px;font-size:14px;color:var(--ink-2)">${esc(authMsg)}</div>` : ""}</div>
+        <div>Until you sign in, progress is saved in this browser only.</div>`;
+    }
+    return;
+  }
+  el.textContent = syncMode === "cloud" ? "Progress and notes are saved to your Claude account and sync across devices."
+    : syncMode === "error" ? "Couldn't connect to sync. Progress is saved in this browser."
+    : "Progress and notes are saved in this browser.";
+}
+document.addEventListener("submit", e => { if (e.target.id === "signInForm"){ e.preventDefault(); const v = document.getElementById("email").value.trim(); if (v) signIn(v); } });
+document.addEventListener("click", e => { if (e.target.closest("#signOut")) signOut(); });
+
+/* ---------- Session sheet ---------- */
+let openN = null, sheetY = 0, sheetAnim = null, sheetH = 0;
+const sheet = document.getElementById("sheet"), scrim = document.getElementById("scrim");
+function setSheetY(y){ sheetY = y; sheet.style.transform = `translateY(${y}px)`; scrim.style.opacity = Math.max(0, 1 - y/sheetH); }
+function openSheet(n){
+  openN = n; renderSheet(true);
+  sheet.classList.add("open"); scrim.classList.add("on");
+  sheetH = sheet.offsetHeight;
+  if (sheetAnim) sheetAnim.stop();
+  sheetAnim = spring({from: sheetY || sheetH, to: 0, damping: .9, response: .42, onUpdate: setSheetY});
+  if (location.hash !== "#s" + n) history.replaceState(null, "", "#s" + n);
+  setTimeout(() => document.getElementById("shClose").focus({preventScroll:true}), 50);
+}
+function closeSheet(velocity = 0){
+  if (openN === null) return;
+  const was = openN; openN = null;
+  if (sheetAnim) sheetAnim.stop();
+  scrim.classList.remove("on");
+  sheetAnim = spring({from: sheetY, to: sheetH + 40, velocity, damping: 1, response: .38, onUpdate: setSheetY,
+    onDone: () => { sheet.classList.remove("open"); scrim.style.opacity = ""; }});
+  history.replaceState(null, "", "#" + currentView);
+  const back = document.querySelector(`[data-open="${was}"]`); back && back.focus({preventScroll:true});
+}
+scrim.addEventListener("click", () => closeSheet());
+document.getElementById("shClose").addEventListener("click", () => closeSheet());
+addEventListener("keydown", e => { if (e.key === "Escape") { if (modal.classList.contains("on")) closeModal(); else closeSheet(); } });
+
+// drag-to-dismiss with 1:1 tracking, velocity handoff and momentum projection
+(() => {
+  const g = document.getElementById("grab"); let startY = 0, startSheet = 0, hist = [], dragging = false, moved = false;
+  g.addEventListener("pointerdown", e => {
+    if (e.target.closest("button")) return;
+    dragging = true; moved = false; g.setPointerCapture(e.pointerId);
+    if (sheetAnim) sheetAnim.stop();
+    startY = e.clientY; startSheet = sheetY; hist = [{y:e.clientY,t:performance.now()}];
+  });
+  g.addEventListener("pointermove", e => {
+    if (!dragging) return;
+    let dy = e.clientY - startY; if (Math.abs(dy) > 4) moved = true;
+    let y = startSheet + dy;
+    if (y < 0) y = -(-y*60)/(60 + -y*0.55); // rubber-band above the top
+    setSheetY(y);
+    hist.push({y:e.clientY,t:performance.now()}); if (hist.length > 6) hist.shift();
+  });
+  const end = () => {
+    if (!dragging) return; dragging = false;
+    const a = hist[0], b = hist[hist.length-1]; const v = b && a && b.t > a.t ? (b.y - a.y)/((b.t - a.t)/1000) : 0;
+    const projected = sheetY + (v/1000)*0.998/(1-0.998);
+    if (moved && (projected > sheetH*0.45 || v > 900)) closeSheet(v);
+    else { sheetAnim = spring({from: sheetY, to: 0, velocity: v, damping: .85, response: .35, onUpdate: setSheetY}); }
+  };
+  g.addEventListener("pointerup", end); g.addEventListener("pointercancel", end);
+})();
+
+function stepState(s){
+  const n = s.n, t = S.task[n] || {};
+  const parts = [];
+  if (s.read.length) parts.push(arr(S.read,n).length / s.read.length);
+  if (s.learn.length) parts.push(arr(S.learn,n).length / s.learn.length);
+  if (s.do || s.ext) parts.push(((t.do?1:0) + (t.ext?1:0)) / ((s.do?1:0) + (s.ext?1:0)));
+  parts.push((S.notes[n]||"").trim().length >= 20 ? 1 : 0);
+  return parts;
+}
+function canComplete(s){
+  return arr(S.read,s.n).length === s.read.length && arr(S.learn,s.n).length === s.learn.length;
+}
+function renderSheet(full){
+  const s = BYN[openN]; if (!s) return; const p = PHASES[s.pi], n = s.n, t = S.task[n] || {};
+  sheet.style.setProperty("--c1", p.c[0]); sheet.style.setProperty("--c2", p.c[1]);
+  document.getElementById("shK").textContent = `${pad(n)} · ${p.id} · ${p.name}`;
+  document.getElementById("shTitle").textContent = s.title;
+  document.getElementById("shMeta").textContent = `${s.pages ? s.pages + " · " : ""}about ${estMin(s)} min · up to ${maxXP(s)} XP`;
+  document.getElementById("shSteps").innerHTML = stepState(s).map(v => `<i><b style="width:${v*100}%"></b></i>`).join("");
+  if (!full) return updateSheetParts(s);
+  const body = [];
+  body.push(`<div class="blk"><div class="timer"><div class="ring" id="tRing" style="width:64px;height:64px"></div>
+    <div><h5 style="margin-bottom:6px">Focus timer</h5><div class="tbtns">
+    <button class="btn" id="tGo">${timer.running ? "Pause" : timer.left < timer.total ? "Resume" : "Start " + Math.round(timer.total/60) + " min"}</button>
+    <button class="btn ghost" id="tReset">Reset</button></div></div></div></div>`);
+  if (s.read.length){
+    body.push(`<div class="blk"><h5><span class="ico" style="background:${p.c[0]}"><svg><use href="#i-book"/></svg></span>Fly the reading route<span class="xp">+${XP.read} each</span></h5>
+      <p class="hint">Open the PHAK at ${esc(s.pages || "these headings")}. Tap each heading as you finish it to move the plane along.</p>
+      <div class="wps" id="wps"><span class="line"></span><span class="fill" id="wpFill"></span><span class="plane" id="plane"><svg><use href="#i-plane"/></svg></span>
+      ${s.read.map((h,i) => `<button class="wp" data-wp="${i}" aria-pressed="false"><span class="dot"><i></i></span><span class="w">${esc(h)}</span><span class="tag">${i===s.read.length-1?"ARR":i===0?"DEP":"WPT "+i}</span></button>`).join("")}
+      </div><div class="landed" id="landed">Landed. Reading complete.</div></div>`);
+  }
+  if (s.learn.length){
+    body.push(`<div class="blk"><h5><span class="ico" style="background:#30b158"><svg><use href="#i-brain"/></svg></span>Can you explain it?<span class="xp">+${XP.learn} each</span></h5>
+      <p class="hint">Close the book. Say each one out loud in your own words, then tap it.</p>
+      <div class="learn">${s.learn.map((l,i) => `<button class="lc" data-lc="${i}" aria-pressed="false"><span class="chk"><svg><use href="#i-check"/></svg></span><span class="q"><small>Explain</small>${esc(cap(l))}</span></button>`).join("")}</div></div>`);
+  }
+  if (s.do || s.ext){
+    body.push(`<div class="blk"><h5><span class="ico" style="background:#ff9f0a"><svg><use href="#i-wrench"/></svg></span>${s.review ? "Review mission" : "Hands-on"}</h5>
+      ${s.do ? `<button class="task" data-task="do" aria-pressed="false"><span class="chk"><svg><use href="#i-check"/></svg></span><span class="q"><span class="kicker">Task · +${XP.do} XP</span>${esc(cap(s.do))}</span></button>` : ""}
+      ${s.ext ? `<button class="task" data-task="ext" aria-pressed="false"><span class="chk"><svg><use href="#i-check"/></svg></span><span class="q"><span class="kicker e">Engineer's extension · bonus +${XP.ext} XP</span>${esc(cap(s.ext))}</span></button>` : ""}
+    </div>`);
+  }
+  body.push(`<div class="blk"><h5><span class="ico" style="background:#5e5ce6"><svg><use href="#i-pen"/></svg></span>Debrief<span class="xp">+${XP.notes}</span></h5>
+    <p class="hint">Three lines in your own words: what it is, why it matters, one thing that surprised you.</p>
+    <label class="sr" for="notes">Debrief notes</label><textarea class="notes" id="notes" placeholder="1. It is…&#10;2. It matters because…&#10;3. Surprise:"></textarea></div>`);
+  body.push(`<div class="finish" id="finish"></div>`);
+  const sb = document.getElementById("shBody"); sb.innerHTML = body.join(""); sb.scrollTop = 0;
+  document.getElementById("notes").value = S.notes[n] || "";
+  updateSheetParts(s, true); renderTimer();
+}
+function maxXP(s){ return s.read.length*XP.read + s.learn.length*XP.learn + (s.do?XP.do:0) + (s.ext?XP.ext:0) + XP.notes + XP.done; }
+function updateSheetParts(s, instant){
+  const n = s.n, t = S.task[n] || {}, rd = arr(S.read,n), ln = arr(S.learn,n);
+  document.querySelectorAll(".wp").forEach(b => { const on = rd.includes(+b.dataset.wp); b.classList.toggle("on", on); b.setAttribute("aria-pressed", on); });
+  document.querySelectorAll(".lc").forEach(b => { const on = ln.includes(+b.dataset.lc); b.classList.toggle("on", on); b.classList.toggle("done", on); b.setAttribute("aria-pressed", on); });
+  document.querySelectorAll(".task").forEach(b => { const on = !!t[b.dataset.task]; b.classList.toggle("on", on); b.classList.toggle("done", on); b.setAttribute("aria-pressed", on); });
+  movePlane(s, instant);
+  const landed = document.getElementById("landed"); if (landed) landed.classList.toggle("on", s.read.length && rd.length === s.read.length);
+  const f = document.getElementById("finish"); if (!f) return;
+  if (isDone(n)){
+    f.innerHTML = `<div class="donepill"><svg width="20" height="20"><use href="#i-check"/></svg>Completed ${fmtDate(S.done[n])}</div>
+      <div class="why"><button style="color:var(--accent);font-weight:600" id="undo">Mark as not done</button></div>`;
+  } else {
+    const left = (s.read.length - rd.length) + (s.learn.length - ln.length);
+    const ok = canComplete(s);
+    f.innerHTML = `<button class="btn wide" id="complete" ${ok ? "" : "disabled"}>${ok ? `Complete session · +${XP.done} XP` : `Complete session`}</button>
+      <div class="why">${ok ? "Tasks and debrief are bonus XP. Tap to log this session." : `${left} left to unlock: finish the reading route and every "explain it" card.`}</div>`;
+  }
+}
+let planeAnim = null, planeY = 8;
+function movePlane(s, instant){
+  const wps = document.getElementById("wps"); if (!wps) return;
+  const btns = [...wps.querySelectorAll(".wp")]; const rd = arr(S.read, s.n);
+  let idx = -1; btns.forEach((b,i) => { if (rd.includes(i)) idx = Math.max(idx, i); });
+  const tgt = idx < 0 ? btns[0] : btns[idx];
+  const y = tgt.offsetTop + tgt.offsetHeight/2 - 15;
+  const plane = document.getElementById("plane"), fill = document.getElementById("wpFill");
+  fill.style.height = Math.max(0, y - 8) + "px";
+  if (planeAnim) planeAnim.stop();
+  if (instant){ planeY = y; plane.style.transform = `translateY(${y - 8}px)`; return; }
+  planeAnim = spring({from: planeY, to: y, damping: .75, response: .45, onUpdate: v => { planeY = v; plane.style.transform = `translateY(${v - 8}px)`; }});
+}
+function floatXP(el, amt){
+  if (!el) return; const r = el.getBoundingClientRect();
+  const f = document.createElement("div"); f.className = "xpf"; f.textContent = (amt > 0 ? "+" : "") + amt + " XP";
+  f.style.left = (r.left + r.width/2) + "px"; f.style.top = (r.top + 4) + "px";
+  document.body.appendChild(f); setTimeout(() => f.remove(), 950);
+  buzz(8);
+}
+function buzz(ms){ try { navigator.vibrate && navigator.vibrate(ms); } catch(e) {} }
+function toggleIn(map, n, i){ const a = (map[n] || []).slice(); const k = a.indexOf(i); if (k >= 0) a.splice(k,1); else a.push(i); map[n] = a; return k < 0; }
+
+document.getElementById("shBody").addEventListener("click", e => {
+  const s = BYN[openN]; if (!s) return; const n = s.n;
+  const wp = e.target.closest(".wp"), lc = e.target.closest(".lc"), tk = e.target.closest(".task");
+  if (wp){ const on = toggleIn(S.read, n, +wp.dataset.wp); floatXP(wp, on ? XP.read : -XP.read); afterChange(s);
+    if (on && arr(S.read,n).length === s.read.length) { toast("Landed. Reading route complete"); }
+    return; }
+  if (lc){ const on = toggleIn(S.learn, n, +lc.dataset.lc); floatXP(lc, on ? XP.learn : -XP.learn); if (on){ lc.classList.remove("pop"); void lc.offsetWidth; lc.classList.add("pop"); } afterChange(s); return; }
+  if (tk){ const k = tk.dataset.task; S.task[n] = Object.assign({}, S.task[n]); S.task[n][k] = !S.task[n][k]; floatXP(tk, S.task[n][k] ? XP[k] : -XP[k]); afterChange(s); return; }
+  if (e.target.closest("#complete")) return complete(s);
+  if (e.target.closest("#undo")) { delete S.done[n]; save(); renderAll(); toast(`${pad(n)} marked as not done`); return; }
+  if (e.target.closest("#tGo")) return timerToggle();
+  if (e.target.closest("#tReset")) return timerReset();
+});
+let notesT = null;
+document.getElementById("shBody").addEventListener("input", e => {
+  if (e.target.id !== "notes") return; const n = openN;
+  const before = (S.notes[n]||"").trim().length >= 20;
+  S.notes[n] = e.target.value;
+  const after = (S.notes[n]||"").trim().length >= 20;
+  if (!before && after) floatXP(e.target, XP.notes); else if (before && !after) floatXP(e.target, -XP.notes);
+  clearTimeout(notesT); notesT = setTimeout(() => { save(); renderSheet(false); renderChips(); }, 500);
+});
+function afterChange(s){ save(); renderSheet(false); renderChips(); renderHero(); }
+
+function complete(s){
+  const beforeRank = rankOf(totalXP()).i, phaseWas = phaseDone(PHASES[s.pi]);
+  S.done[s.n] = today(); save();
+  buzz([12,40,20]); confetti();
+  const p = PHASES[s.pi];
+  closeSheet();
+  renderAll(true);
+  const row = document.querySelector(`[data-row="${s.n}"]`); if (row){ row.classList.add("pop"); }
+  toast(`${pad(s.n)} logged · +${XP.done} XP`, true, s.n);
+  const afterRank = rankOf(totalXP());
+  setTimeout(() => {
+    if (!phaseWas && phaseDone(p)) showModal(`<div class="medal" style="--c1:${p.c[0]};--c2:${p.c[1]}">${p.pi}</div>
+      <h3>${BADGES[p.pi]} badge earned</h3><p>You finished ${esc(p.id)}: ${esc(p.name)}. ${p.sessions.length} sessions logged.</p>
+      <div class="btns"><button class="btn wide" data-close>Keep flying</button></div>`);
+    else if (afterRank.i > beforeRank) showModal(`<div class="wings" style="width:96px;height:96px;border-radius:28px;margin:0 auto 14px"><svg style="width:60px;height:60px"><use href="#i-wings"/></svg></div>
+      <h3>Promoted to ${afterRank.name}</h3><p>${totalXP().toLocaleString()} XP logged.${afterRank.next ? ` Next rank: ${afterRank.next}.` : ""}</p>
+      <div class="btns"><button class="btn wide" data-close>Keep flying</button></div>`);
+  }, 650);
+}
+
+/* ---------- Timer ---------- */
+const timer = {total: 35*60, left: 35*60, running: false, iv: null, endAt: 0};
+function timerToggle(){
+  if (timer.running){ timer.running = false; clearInterval(timer.iv); }
+  else {
+    if (timer.left <= 0) timer.left = timer.total;
+    timer.running = true; timer.endAt = Date.now() + timer.left*1000;
+    timer.iv = setInterval(() => { timer.left = Math.max(0, Math.round((timer.endAt - Date.now())/1000));
+      if (timer.left <= 0){ timer.running = false; clearInterval(timer.iv); toast("35 minutes done. Wrap up and debrief"); buzz([30,60,30]); }
+      renderTimer(); }, 1000);
+  }
+  renderTimer();
+}
+function timerReset(){ timer.running = false; clearInterval(timer.iv); timer.left = timer.total; renderTimer(); }
+function renderTimer(){
+  const mm = String(Math.floor(timer.left/60)).padStart(2,"0") + ":" + String(timer.left%60).padStart(2,"0");
+  const chip = document.getElementById("timerChip"); chip.classList.toggle("on", timer.running || timer.left < timer.total);
+  document.getElementById("timerChipT").textContent = mm;
+  const r = document.getElementById("tRing");
+  if (r){ r.innerHTML = ringSVG(1 - timer.left/timer.total, "#0a84ff", "#5e5ce6", 64, 7, "tm") + `<div class="lbl" style="font-size:13px">${mm}</div>`; }
+  const g = document.getElementById("tGo"); if (g) g.textContent = timer.running ? "Pause" : timer.left < timer.total && timer.left > 0 ? "Resume" : "Start 35 min";
+}
+document.getElementById("timerChip").addEventListener("click", () => { const nx = nextSession(); if (nx) openSheet(nx.n); });
+
+/* ---------- Toast, modal, confetti ---------- */
+const toastEl = document.getElementById("toast"); let toastT = null;
+function toast(msg, undo, n){
+  toastEl.innerHTML = `<svg width="18" height="18" style="color:var(--good)"><use href="#i-check"/></svg><span>${esc(msg)}</span>${undo ? `<button data-undo="${n}">Undo</button>` : ""}`;
+  toastEl.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => toastEl.classList.remove("on"), undo ? 4500 : 2200);
+}
+toastEl.addEventListener("click", e => { const b = e.target.closest("[data-undo]"); if (!b) return; delete S.done[b.dataset.undo]; save(); renderAll(); toastEl.classList.remove("on"); });
+const modal = document.getElementById("modal");
+function showModal(html){ document.getElementById("mbox").innerHTML = html; modal.classList.add("on"); confetti(); setTimeout(() => modal.querySelector("[data-close]")?.focus(), 50); }
+function closeModal(){ modal.classList.remove("on"); }
+modal.addEventListener("click", e => { if (e.target === modal || e.target.closest("[data-close]")) closeModal(); });
+
+const fx = document.getElementById("fx"), ctx = fx.getContext("2d"); let parts = [], fxRaf = null;
+function confetti(){
+  if (reduce) return;
+  const dpr = devicePixelRatio || 1; fx.width = innerWidth*dpr; fx.height = innerHeight*dpr; ctx.setTransform(dpr,0,0,dpr,0,0);
+  const cols = ["#ffcc00","#ff9f0a","#30d158","#0a84ff","#bf5af2","#ff375f","#64d2ff"];
+  for (let i=0;i<140;i++){
+    const a = -Math.PI/2 + (Math.random()-.5)*1.6, sp = 9 + Math.random()*10;
+    parts.push({x: innerWidth/2, y: innerHeight*0.72, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp, w: 6+Math.random()*6, h: 8+Math.random()*8,
+      r: Math.random()*6, vr: (Math.random()-.5)*.4, c: cols[i%cols.length], life: 0});
+  }
+  if (!fxRaf) fxRaf = requestAnimationFrame(tick);
+}
+function tick(){
+  ctx.clearRect(0,0,innerWidth,innerHeight);
+  parts.forEach(p => { p.vy += .32; p.vx *= .985; p.vy *= .985; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life++;
+    ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.globalAlpha = Math.max(0, 1 - p.life/150); ctx.fillStyle = p.c;
+    ctx.fillRect(-p.w/2,-p.h/2,p.w,p.h*Math.abs(Math.cos(p.r*1.3))); ctx.restore(); });
+  parts = parts.filter(p => p.life < 150 && p.y < innerHeight + 40);
+  fxRaf = parts.length ? requestAnimationFrame(tick) : (ctx.clearRect(0,0,innerWidth,innerHeight), null);
+}
+
+/* ---------- Tabs, segmented control, routing ---------- */
+let currentView = "path", tabAnim = null, tabX = null;
+function moveKnob(knob, btn, animate, store){
+  const x = btn.offsetLeft, w = btn.offsetWidth;
+  knob.style.width = w + "px";
+  if (!animate || store.x == null){ store.x = x; knob.style.transform = `translateX(${x}px)`; knob.style.left = "0"; return; }
+  if (store.anim) store.anim.stop();
+  store.anim = spring({from: store.x, to: x, damping: .8, response: .35, onUpdate: v => { store.x = v; knob.style.transform = `translateX(${v}px)`; }});
+}
+const tabStore = {}, segStore = {};
+function show(v, animate=true){
+  if (!["path","checklist","progress"].includes(v)) v = "path";
+  currentView = v;
+  document.querySelectorAll(".view").forEach(el => el.classList.toggle("on", el.id === "v-" + v));
+  document.querySelectorAll("#tabbar button").forEach(b => { b.classList.toggle("on", b.dataset.v === v); b.setAttribute("aria-current", b.dataset.v === v ? "page" : "false"); });
+  moveKnob(document.getElementById("tabKnob"), document.querySelector(`#tabbar button[data-v="${v}"]`), animate, tabStore);
+  document.getElementById("toptitle").textContent = {path:"Flight Path",checklist:"Checklist",progress:"Logbook"}[v];
+  if (v === "path") requestAnimationFrame(drawTrails);
+  if (v === "checklist") requestAnimationFrame(() => moveKnob(document.getElementById("segKnob"), document.querySelector(`#seg button[data-f="${filter}"]`), false, segStore));
+  scrollTo({top:0});
+}
+document.getElementById("tabbar").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; history.replaceState(null,"","#" + b.dataset.v); show(b.dataset.v); });
+document.getElementById("seg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; filter = b.dataset.f;
+  document.querySelectorAll("#seg button").forEach(x => x.classList.toggle("on", x === b)); moveKnob(document.getElementById("segKnob"), b, true, segStore); renderChecklist(); });
+document.getElementById("q").addEventListener("input", e => { query = e.target.value; renderChecklist(); });
+document.addEventListener("click", e => {
+  const g = e.target.closest("[data-goal]"); if (g){ S.goal = Math.max(1, Math.min(5, (S.goal||1) + +g.dataset.goal)); save(); renderAll(); return; }
+  const o = e.target.closest("[data-open]"); if (o && !o.closest("#sheet")) openSheet(+o.dataset.open);
+});
+function route(){
+  const h = location.hash.slice(1);
+  const m = h.match(/^s(\d+)$/);
+  if (m && BYN[+m[1]]) { if (!document.querySelector(".view.on")) show("path", false); if (openN !== +m[1]) openSheet(+m[1]); return; }
+  if (openN !== null) closeSheet();
+  show(h || "path", false);
+}
+addEventListener("hashchange", route);
+addEventListener("scroll", () => document.getElementById("topbar").classList.toggle("scrolled", scrollY > 50), {passive:true});
+addEventListener("resize", () => { drawTrails(); moveKnob(document.getElementById("tabKnob"), document.querySelector("#tabbar button.on"), false, tabStore); sheetH = sheet.offsetHeight; });
+
+function renderAll(){
+  renderChips(); renderHero(); renderRoute(); renderChecklist(); renderProgress();
+  if (openN !== null) renderSheet(false);
+}
+renderAll();
+route();
+// bring the current node into view on first load of the path
+requestAnimationFrame(() => {
+  if (currentView !== "path" || openN !== null) return;
+  const cur = document.querySelector(".node.cur");
+  if (cur && doneCount() > 2) cur.scrollIntoView({block:"center"});
+});
+})();
+</script>
+</body>
+</html>

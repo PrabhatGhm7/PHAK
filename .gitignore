@@ -1,0 +1,7 @@
+# Generated at build time from environment variables
+config.js
+# Local secrets
+.env
+.env.*
+node_modules/
+.vercel/
