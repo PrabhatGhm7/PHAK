@@ -1,7 +1,9 @@
-# Generated at build time from environment variables
+# Build output (generated on Vercel from environment variables)
+public/
 config.js
 # Local secrets
 .env
-.env.*
+.env.local
+.env.production
 node_modules/
 .vercel/
