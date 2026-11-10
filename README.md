@@ -3,6 +3,8 @@
 A 143-session study tracker for the FAA Pilot's Handbook of Aeronautical Knowledge.
 Static site: one `index.html`, with optional Supabase sync for progress and debrief notes.
 
+Live link: https://studyphak-git-main-prabhatghm7s-projects.vercel.app/
+
 ## Deploy (Vercel + GitHub)
 
 1. In Supabase, run `supabase.sql` in the SQL Editor.
